@@ -9,7 +9,7 @@ Since this repo contains a submodule, you need to make sure you clone it
 recursively, e.g. with:
 
 ``` sh
-git clone --recurse-submodules <your repo name>
+git clone --recurse-submodules git@github.com:finger563/esp-gfps-example
 ```
 
 Alternatively, you can always ensure the submodules are up to date after cloning
