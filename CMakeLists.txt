@@ -12,13 +12,11 @@ set(EXTRA_COMPONENT_DIRS
 
 set(
   COMPONENTS
-  # TODO: add additional esp-idf and espp components you want to use to the line below:
   "main esptool_py logger task"
   CACHE STRING
   "List of components to include"
   )
 
-# TODO: update this with your project's name
-project(template)
+project(esp-gfps-example)
 
 set(CMAKE_CXX_STANDARD 20)
