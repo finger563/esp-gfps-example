@@ -1,7 +1,16 @@
 # ESP Google Fast Pair Service (GFPS) Example
 
 Example application for ESP32 to test integration with google fast pair service
-(GFPS) for optimized pairing / onboarding of BLE devices with Android phones. 
+(GFPS) for optimized pairing / on boarding of BLE devices with Android phones. 
+
+This example is based on the following ESP-IDF examples:
+
+- [gatt_server_service_table](https://github.com/espressif/esp-idf/tree/d2471b11e78fb0af612dfa045255ac7fe497bea8/examples/bluetooth/bluedroid/ble/gatt_server_service_table)
+- [gatt_server](https://github.com/espressif/esp-idf/tree/d2471b11e7/examples/bluetooth/bluedroid/ble/gatt_server)
+
+And implements the service and characteristics for GFPS according to the [google
+fast pair characteristics specification
+page](https://developers.google.com/nearby/fast-pair/specifications/characteristics)
 
 ## Cloning
 
