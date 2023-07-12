@@ -1,23 +1,7 @@
-# ESP++ Template
+# ESP Google Fast Pair Service (GFPS) Example
 
-Template repository for building an ESP app with ESP++ (espp) components and
-ESP-IDF components.
-
-## Development
-
-This repository is designed to be used as a template repository - so you can
-sepcify this as the template repository type when creating a new repository on
-GitHub.
-
-After setting this as the template, make sure to update the following:
-- [This README](./README.md) to contain the relevant description and images of your project
-- The [./CMakeLists.txt](./CMakeLists.txt) file to have the components that you
-  want to use (and any you may have added to the [components
-  folder](./components)) as well as to update the project name
-- The [./main/main.cpp](./main/main.cpp) To run the main code for your app. The
-  [main folder](./main) is also where you can put additional header and source
-  files that you don't think belong in their own components but help keep the
-  main code clean.
+Example application for ESP32 to test integration with google fast pair service
+(GFPS) for optimized pairing / onboarding of BLE devices with Android phones. 
 
 ## Cloning
 
