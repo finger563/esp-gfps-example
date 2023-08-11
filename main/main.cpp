@@ -12,6 +12,8 @@
 #include "logger.hpp"
 #include "task.hpp"
 
+#include "embedded.hpp"
+
 using namespace std::chrono_literals;
 
 static espp::Logger logger({.tag = "GFPS Example", .level = espp::Logger::Verbosity::DEBUG});
@@ -630,6 +632,9 @@ extern "C" void app_main(void) {
   esp_ble_gap_register_callback(gap_event_handler);
   esp_ble_gatts_app_register(ESP_APP_ID);
   esp_ble_gatt_set_local_mtu(500);
+
+  nearby_fp_client_Init(NULL);
+  nearby_fp_client_SetAdvertisement(NEARBY_FP_ADVERTISEMENT_DISCOVERABLE);
 
   // loop forever
   while (true) {
