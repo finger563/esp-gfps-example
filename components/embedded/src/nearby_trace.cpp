@@ -13,7 +13,29 @@ static espp::Logger logger({.tag="embedded", .level=espp::Logger::Verbosity::DEB
 void nearby_platform_Trace(nearby_platform_TraceLevel level,
                            const char *filename, int lineno, const char *fmt,
                            ...) {
-  // TODO: implement
+  switch (level) {
+  case kTraceLevelDebug:
+    logger.debug("");
+    break;
+  case kTraceLevelInfo:
+    logger.info("");
+    break;
+  case kTraceLevelWarning:
+    logger.warn("");
+    break;
+  case kTraceLevelError:
+    logger.error("");
+    break;
+  default:
+    logger.error("Unknown trace level: {}", (int)level);
+    break;
+  }
+  va_list args;
+  va_start(args, fmt);
+  printf("%s:%d: ", filename, lineno);
+  vprintf(fmt, args);
+  printf("\n");
+  va_end(args);
 }
 
 // Processes assert. Processes a failed assertion.

@@ -10,6 +10,8 @@
 #include "nearby_platform_trace.h"
 #include "nearby_fp_client.h"
 
+#include <nvs_flash.h>
+
 #include "logger.hpp"
 #include "task.hpp"
 #include "timer.hpp"
