@@ -12,6 +12,10 @@ And implements the service and characteristics for GFPS according to the [google
 fast pair characteristics specification
 page](https://developers.google.com/nearby/fast-pair/specifications/characteristics)
 
+For additional information and to see a reference library for implementing the
+nearby/embedded framework, see [google/nearby/embedded
+github](https://github.com/google/nearby/tree/main/embedded)
+
 ## Cloning
 
 Since this repo contains a submodule, you need to make sure you clone it
