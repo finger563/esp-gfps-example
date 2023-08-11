@@ -1,5 +1,7 @@
 #pragma once
 
+#include <chrono>
+
 #include "nearby_platform_audio.h"
 #include "nearby_platform_battery.h"
 #include "nearby_platform_bt.h"

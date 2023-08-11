@@ -1,11 +1,14 @@
 #include "embedded.hpp"
 
+static std::chrono::system_clock::time_point s_start_time;
+
 /////////////////PLATFORM///////////////////////
 
 // Gets current time in ms.
 unsigned int nearby_platform_GetCurrentTimeMs() {
-  // TODO: implement
-  return 0;
+  auto now = std::chrono::system_clock::now();
+  auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - s_start_time);
+  return elapsed.count();
 }
 
 // Starts a timer. Returns an opaque timer handle or null on error.
@@ -15,6 +18,7 @@ unsigned int nearby_platform_GetCurrentTimeMs() {
 void* nearby_platform_StartTimer(void (*callback)(), unsigned int delay_ms) {
   espp::Timer* timer = new espp::Timer(espp::Timer::Config{
       .name = "nearby timer",
+      .period = std::chrono::milliseconds(0), // one-shot
       .delay = std::chrono::milliseconds(delay_ms),
       .callback = [callback]() { callback(); return true; },
     });
@@ -33,7 +37,7 @@ nearby_platform_status nearby_platform_CancelTimer(void* timer) {
 
 // Initializes OS module
 nearby_platform_status nearby_platform_OsInit() {
-  // TODO: implement
+  s_start_time = std::chrono::system_clock::now();
   return kNearbyStatusOK;
 }
 
