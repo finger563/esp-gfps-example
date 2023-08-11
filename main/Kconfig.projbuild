@@ -1,0 +1,9 @@
+menu "Configuration"
+
+    config DEVICE_NAME
+        string "BLE Device Name"
+        default "GFPS Example"
+        help
+            Set the BLE device name used in advertisement of the BLE device.
+
+endmenu
