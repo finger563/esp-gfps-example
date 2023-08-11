@@ -6,4 +6,10 @@ menu "Configuration"
         help
             Set the BLE device name used in advertisement of the BLE device.
 
+    config MODEL_ID
+        hex "Model ID"
+        default 0x11223344
+        help
+            Set the model id (24 bit)
+
 endmenu

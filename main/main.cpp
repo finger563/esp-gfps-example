@@ -176,8 +176,8 @@ static const uint8_t char_prop_write               = ESP_GATT_CHAR_PROP_BIT_WRIT
 static const uint8_t char_prop_read_write_notify   = ESP_GATT_CHAR_PROP_BIT_WRITE | ESP_GATT_CHAR_PROP_BIT_READ | ESP_GATT_CHAR_PROP_BIT_NOTIFY;
 
 // TODO: update
-static const uint8_t ccc[2]           = {0x00, 0x03}; // LSb corresponds to notifications (1 if enabled, 0 if disabled), next bit (bit 1) corresponds to indications - 1 if enabled, 0 if disabled
-static const uint8_t model_id[3]      = {0x62, 0xEF, 0x1C}; // 0x62EF1C
+static const uint8_t ccc[2]           = {0x03, 0x00}; // LSb corresponds to notifications (1 if enabled, 0 if disabled), next bit (bit 1) corresponds to indications - 1 if enabled, 0 if disabled
+static const uint32_t model_id        = CONFIG_MODEL_ID;
 static const uint8_t fw_revision[4]   = {'1', '.', '0', 0x00};
 static const uint8_t char_value[16]    = {0x00};
 
@@ -221,7 +221,7 @@ static const esp_gatts_attr_db_t gatt_db[GFPS_IDX_NB] =
     /* Characteristic Value */
     [IDX_CHAR_VAL_MODEL_ID] =
     {{ESP_GATT_AUTO_RSP}, {ESP_UUID_LEN_128, (uint8_t *)GATTS_CHAR_UUID_GFPS_MODEL_ID, ESP_GATT_PERM_READ,
-                           GATTS_DEMO_CHAR_VAL_LEN_MAX, sizeof(model_id), (uint8_t *)model_id}},
+                           GATTS_DEMO_CHAR_VAL_LEN_MAX, 3, (uint8_t *)&model_id}},
 
     /* Characteristic Declaration */
     [IDX_CHAR_KB_PAIRING]      =
@@ -589,6 +589,9 @@ extern "C" void app_main(void) {
   esp_err_t ret;
 
   logger.info("Bootup");
+
+  logger.info("Device name: '{}'", CONFIG_DEVICE_NAME);
+  logger.info("Model ID: 0x{:x}", model_id);
 
   // Initialize NVS.
   ret = nvs_flash_init();
