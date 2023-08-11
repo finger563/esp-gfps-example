@@ -4,8 +4,7 @@
 
 // Returns Fast Pair Model Id.
 uint32_t nearby_platform_GetModelId() {
-  // TODO: implement
-  return 0x112233;
+  return CONFIG_MODEL_ID;
 }
 
 // Returns tx power level.
