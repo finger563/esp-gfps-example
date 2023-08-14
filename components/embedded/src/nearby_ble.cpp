@@ -676,33 +676,6 @@ nearby_platform_status nearby_platform_BleInit(
     const nearby_platform_BleInterface* ble_interface) {
 
   logger.info("Initializing BLE");
-  logger.info("Device name: '{}'", CONFIG_DEVICE_NAME);
-  logger.info("Model ID: 0x{:x}", model_id);
-
-  esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
-  auto ret = esp_bt_controller_init(&bt_cfg);
-  if (ret) {
-    logger.error("{} enable controller failed", __func__);
-    return kNearbyStatusError;
-  }
-
-  ret = esp_bt_controller_enable(ESP_BT_MODE_BLE);
-  if (ret) {
-    logger.error("{} enable controller failed", __func__);
-    return kNearbyStatusError;
-  }
-
-  logger.info("{} init bluetooth", __func__);
-  ret = esp_bluedroid_init();
-  if (ret) {
-    logger.error("{} init bluetooth failed", __func__);
-    return kNearbyStatusError;
-  }
-  ret = esp_bluedroid_enable();
-  if (ret) {
-    logger.error("{} enable bluetooth failed", __func__);
-    return kNearbyStatusError;
-  }
 
   esp_ble_gatts_register_callback(gatts_event_handler);
   esp_ble_gap_register_callback(gap_event_handler);
