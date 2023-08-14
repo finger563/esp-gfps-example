@@ -54,6 +54,17 @@ typedef struct {
 
 static prepare_type_env_t prepare_write_env;
 
+static uint8_t raw_scan_rsp_data[] = {
+  /* flags */
+  0x02, 0x01, 0x06,
+  /* tx power */
+  0x02, 0x0a, 0x00,
+  /* service uuid */
+  0x03, 0x03, 0x2C, 0xFE,
+};
+
+static std::vector<uint8_t> raw_adv_data;
+
 static uint8_t service_uuid[16] = {
   /* LSB <--------------------------------------------------------------------------------> MSB */
   //first uuid, 16bit, [12],[13] is the value
@@ -391,29 +402,30 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
 {
   switch (event) {
   case ESP_GATTS_REG_EVT:{
+    logger.info("ESP_GATTS_REG_EVT");
     esp_err_t set_dev_name_ret = esp_ble_gap_set_device_name(CONFIG_DEVICE_NAME);
     if (set_dev_name_ret){
       logger.error("set device name failed, error code = {:x}", set_dev_name_ret);
     }
 #ifdef CONFIG_SET_RAW_ADV_DATA
+    esp_err_t adv_ret = esp_ble_gap_config_adv_data_raw(raw_adv_data.data(), raw_adv_data.size());
+    esp_err_t scan_ret = esp_ble_gap_config_scan_rsp_data_raw(raw_scan_rsp_data, sizeof(raw_scan_rsp_data));
 #else
-    //config adv data
-    esp_err_t ret = esp_ble_gap_config_adv_data(&adv_data);
-    if (ret){
-      ESP_LOGE(GATTS_TABLE_TAG, "config adv data failed, error code = %x", ret);
-    }
-    adv_config_done |= ADV_CONFIG_FLAG;
-    //config scan response data
-    ret = esp_ble_gap_config_adv_data(&scan_rsp_data);
-    if (ret){
-      ESP_LOGE(GATTS_TABLE_TAG, "config scan response data failed, error code = %x", ret);
-    }
-    adv_config_done |= SCAN_RSP_CONFIG_FLAG;
+    esp_err_t adv_ret = esp_ble_gap_config_adv_data(&adv_data);
+    esp_err_t scan_ret = esp_ble_gap_config_scan_rsp_data(&scan_rsp_data);
 #endif
     esp_err_t create_attr_ret = esp_ble_gatts_create_attr_tab(gatt_db, gatts_if, GFPS_IDX_NB, SVC_INST_ID);
+    if (adv_ret){
+      logger.error("config adv data failed, error code = {:x}", adv_ret);
+    }
+    if (scan_ret){
+      logger.error("config scan response data failed, error code = {:x}", scan_ret);
+    }
     if (create_attr_ret){
       logger.error("create attr table failed, error code = {:x}", create_attr_ret);
     }
+    adv_config_done |= ADV_CONFIG_FLAG;
+    adv_config_done |= SCAN_RSP_CONFIG_FLAG;
   }
     break;
   case ESP_GATTS_READ_EVT:
@@ -688,25 +700,45 @@ nearby_platform_status nearby_platform_GattNotify(
 nearby_platform_status nearby_platform_SetAdvertisement(
     const uint8_t* payload, size_t length,
     nearby_fp_AvertisementInterval interval) {
+  static bool is_advertising = false;
+  if (is_advertising) {
+    logger.info("Already advertising");
+    return kNearbyStatusError;
+  }
+  if (length > 31) {
+    logger.info("Advertisement payload too long");
+    return kNearbyStatusError;
+  }
+  if (length == 0) {
+    logger.info("Advertisement payload empty");
+    return kNearbyStatusError;
+  }
   logger.info("Setting advertisement");
-  esp_err_t raw_adv_ret = esp_ble_gap_config_adv_data_raw((uint8_t*)payload, length);
-  if (raw_adv_ret){
-    logger.error("config raw adv data failed, error code = {:x} ", (int)raw_adv_ret);
-    return kNearbyStatusError;
-  }
-  #if 0
-  esp_err_t raw_scan_ret = esp_ble_gap_config_scan_rsp_data_raw((uint8_t*)payload, length);
-  if (raw_scan_ret){
-    logger.error("config raw scan rsp data failed, error code = {:x}", (int)raw_scan_ret);
-    return kNearbyStatusError;
-  }
+  raw_adv_data.assign(payload, payload + length);
+  logger.info("Payload: {::#x}", raw_adv_data);
+  #ifdef CONFIG_SET_RAW_ADV_DATA
+  esp_err_t adv_ret = esp_ble_gap_config_adv_data_raw(raw_adv_data.data(), raw_adv_data.size());
+  esp_err_t scan_ret = esp_ble_gap_config_scan_rsp_data_raw(raw_scan_rsp_data, sizeof(raw_scan_rsp_data));
   #else
   //config scan response data
-  auto scan_ret = esp_ble_gap_config_adv_data(&scan_rsp_data);
-  if (scan_ret){
-    logger.error("config scan response data failed, error code = {:x}", scan_ret);
-  }
+  auto adv_ret = esp_ble_gap_config_adv_data(&adv_data);
+  auto scan_ret = esp_ble_gap_config_scan_rsp_data(&scan_rsp_data);
   #endif
+  if (adv_ret){
+    logger.error("config adv data failed, error code = {:x} ", (int)adv_ret);
+    return kNearbyStatusError;
+  }
+  if (scan_ret){
+    logger.error("config scan response data failed, error code = {:x}", (int)scan_ret);
+    return kNearbyStatusError;
+  }
+  // set the advertising interval
+  adv_data.min_interval = interval;
+  adv_data.max_interval = interval;
+  scan_rsp_data.min_interval = interval;
+  scan_rsp_data.max_interval = interval;
+  // update the state
+  is_advertising = true;
   return kNearbyStatusOK;
 }
 
