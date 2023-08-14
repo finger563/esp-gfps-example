@@ -3,6 +3,8 @@
 static espp::Logger logger({.tag = "GFPS BR/EDR", .level = espp::Logger::Verbosity::DEBUG});
 
 
+#if CONFIG_BT_CLASSIC_ENABLED
+
 static SemaphoreHandle_t bt_hidh_cb_semaphore = NULL;
 #define WAIT_BT_CB() xSemaphoreTake(bt_hidh_cb_semaphore, portMAX_DELAY)
 #define SEND_BT_CB() xSemaphoreGive(bt_hidh_cb_semaphore)
@@ -57,6 +59,7 @@ static void bt_gap_event_handler(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_para
         break;
     }
 }
+#endif
 
 /////////////////BLUETOOTH///////////////////////
 
@@ -67,10 +70,14 @@ uint32_t nearby_platform_GetModelId() {
 
 // Returns tx power level.
 int8_t nearby_platform_GetTxLevel() {
+  #if CONFIG_BT_CLASSIC_ENABLED
   esp_power_level_t min_tx_power;
   esp_power_level_t max_tx_power;
   auto err = esp_bredr_tx_power_get(&min_tx_power, &max_tx_power);
   return err == ESP_OK ? (int)max_tx_power : 0;
+  #else
+  return 0;
+  #endif
 }
 
 // Returns public BR/EDR address.
@@ -177,6 +184,7 @@ nearby_platform_status nearby_platform_SendMessageStream(uint64_t peer_address,
 nearby_platform_status nearby_platform_BtInit(
     const nearby_platform_BtInterface* bt_interface) {
 
+  #if CONFIG_BT_CLASSIC_ENABLED
   logger.info("Initializing Bluetooth");
 
   esp_err_t ret;
@@ -205,6 +213,10 @@ nearby_platform_status nearby_platform_BtInit(
     logger.error("esp_bt_gap_set_scan_mode failed: {}", ret);
     return kNearbyStatusError;
   }
+
+  #else
+  logger.info("Bluetooth not enabled in menuconfig, skipping initialization");
+  #endif
 
   return kNearbyStatusOK;
 }

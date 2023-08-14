@@ -50,6 +50,16 @@ typedef struct {
   int                     prepare_len;
 } prepare_type_env_t;
 
+static SemaphoreHandle_t ble_hidh_cb_semaphore = NULL;
+#define WAIT_BLE_CB() xSemaphoreTake(ble_hidh_cb_semaphore, portMAX_DELAY)
+#define SEND_BLE_CB() xSemaphoreGive(ble_hidh_cb_semaphore)
+
+#define SIZEOF_ARRAY(a) (sizeof(a) / sizeof(*a))
+
+esp_bd_addr_t ble_peer_address;
+
+esp_bd_addr_t *get_ble_peer_address(void) { return &ble_peer_address; }
+
 static prepare_type_env_t prepare_write_env;
 
 static uint8_t raw_scan_rsp_data[] = {
@@ -236,9 +246,102 @@ static const esp_gatts_attr_db_t gatt_db[GFPS_IDX_NB] =
 
   };
 
+static const char *ble_gap_evt_names[] = {"ADV_DATA_SET_COMPLETE",
+                                          "SCAN_RSP_DATA_SET_COMPLETE",
+                                          "SCAN_PARAM_SET_COMPLETE",
+                                          "SCAN_RESULT",
+                                          "ADV_DATA_RAW_SET_COMPLETE",
+                                          "SCAN_RSP_DATA_RAW_SET_COMPLETE",
+                                          "ADV_START_COMPLETE",
+                                          "SCAN_START_COMPLETE",
+                                          "AUTH_CMPL",
+                                          "KEY",
+                                          "SEC_REQ",
+                                          "PASSKEY_NOTIF",
+                                          "PASSKEY_REQ",
+                                          "OOB_REQ",
+                                          "LOCAL_IR",
+                                          "LOCAL_ER",
+                                          "NC_REQ",
+                                          "ADV_STOP_COMPLETE",
+                                          "SCAN_STOP_COMPLETE",
+                                          "SET_STATIC_RAND_ADDR",
+                                          "UPDATE_CONN_PARAMS",
+                                          "SET_PKT_LENGTH_COMPLETE",
+                                          "SET_LOCAL_PRIVACY_COMPLETE",
+                                          "REMOVE_BOND_DEV_COMPLETE",
+                                          "CLEAR_BOND_DEV_COMPLETE",
+                                          "GET_BOND_DEV_COMPLETE",
+                                          "READ_RSSI_COMPLETE",
+                                          "UPDATE_WHITELIST_COMPLETE"};
+
+const char *ble_gap_evt_str(uint8_t event) {
+    if (event >= SIZEOF_ARRAY(ble_gap_evt_names)) {
+        return "UNKNOWN";
+    }
+    return ble_gap_evt_names[event];
+}
+
+const char *esp_ble_key_type_str(esp_ble_key_type_t key_type) {
+    const char *key_str = NULL;
+    switch (key_type) {
+    case ESP_LE_KEY_NONE:
+        key_str = "ESP_LE_KEY_NONE";
+        break;
+    case ESP_LE_KEY_PENC:
+        key_str = "ESP_LE_KEY_PENC";
+        break;
+    case ESP_LE_KEY_PID:
+        key_str = "ESP_LE_KEY_PID";
+        break;
+    case ESP_LE_KEY_PCSRK:
+        key_str = "ESP_LE_KEY_PCSRK";
+        break;
+    case ESP_LE_KEY_PLK:
+        key_str = "ESP_LE_KEY_PLK";
+        break;
+    case ESP_LE_KEY_LLK:
+        key_str = "ESP_LE_KEY_LLK";
+        break;
+    case ESP_LE_KEY_LENC:
+        key_str = "ESP_LE_KEY_LENC";
+        break;
+    case ESP_LE_KEY_LID:
+        key_str = "ESP_LE_KEY_LID";
+        break;
+    case ESP_LE_KEY_LCSRK:
+        key_str = "ESP_LE_KEY_LCSRK";
+        break;
+    default:
+        key_str = "INVALID BLE KEY TYPE";
+        break;
+    }
+    return key_str;
+}
+
 static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param)
 {
   switch (event) {
+    /*
+     * SCAN
+     * */
+  case ESP_GAP_BLE_SCAN_PARAM_SET_COMPLETE_EVT: {
+    logger.debug("BLE GAP EVENT SCAN_PARAM_SET_COMPLETE");
+    SEND_BLE_CB();
+    break;
+  }
+  case ESP_GAP_BLE_SCAN_RESULT_EVT: {
+    logger.info("BLE GAP EVENT SCAN_RESULT");
+    break;
+  }
+  case ESP_GAP_BLE_SCAN_STOP_COMPLETE_EVT: {
+    logger.debug("BLE GAP EVENT SCAN CANCELED");
+    break;
+  }
+
+    /*
+     * ADVERTISEMENT
+     * */
   case ESP_GAP_BLE_ADV_DATA_RAW_SET_COMPLETE_EVT:
     adv_config_done &= (~ADV_CONFIG_FLAG);
     if (adv_config_done == 0){
@@ -267,6 +370,111 @@ static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param
       logger.info("Stop adv successfully");
     }
     break;
+  case ESP_GAP_BLE_ADV_TERMINATED_EVT:
+    logger.info("BLE GAP ADV_TERMINATED");
+    break;
+
+    /*
+     * CONNECTION
+     * */
+  case ESP_GAP_BLE_GET_DEV_NAME_COMPLETE_EVT:
+    logger.debug("BLE GAP GET_DEV_NAME_COMPLETE");
+    // print the name
+    logger.info("BLE GAP DEVICE NAME: {}", param->get_dev_name_cmpl.name);
+    break;
+
+    /*
+     * BOND
+     * */
+  case ESP_GAP_BLE_REMOVE_BOND_DEV_COMPLETE_EVT:
+    logger.debug("BLE GAP REMOVE_BOND_DEV_COMPLETE");
+    // log the bond that was removed
+    // esp_log_buffer_hex(TAG, param->remove_bond_dev_cmpl.bd_addr, ESP_BD_ADDR_LEN);
+    break;
+
+  case ESP_GAP_BLE_CLEAR_BOND_DEV_COMPLETE_EVT:
+    logger.debug("BLE GAP CLEAR_BOND_DEV_COMPLETE");
+    break;
+
+  case ESP_GAP_BLE_GET_BOND_DEV_COMPLETE_EVT:
+    logger.debug("BLE GAP GET_BOND_DEV_COMPLETE");
+    break;
+
+    /*
+     * AUTHENTICATION
+     * */
+  case ESP_GAP_BLE_AUTH_CMPL_EVT:
+    if (!param->ble_security.auth_cmpl.success) {
+      logger.error("BLE GAP AUTH ERROR: 0x{:x}", param->ble_security.auth_cmpl.fail_reason);
+    } else {
+      logger.info("BLE GAP AUTH SUCCESS");
+      // log the address of the peer device
+      // esp_log_buffer_hex(TAG, param->ble_security.auth_cmpl.bd_addr, ESP_BD_ADDR_LEN);
+      // save the address of the peer device
+      memcpy(ble_peer_address, param->ble_security.auth_cmpl.bd_addr, ESP_BD_ADDR_LEN);
+    }
+    break;
+
+  case ESP_GAP_BLE_KEY_EVT: // shows the ble key info share with peer device to the user.
+    logger.info("BLE GAP KEY type = {}",
+                esp_ble_key_type_str(param->ble_security.ble_key.key_type));
+    break;
+
+  case ESP_GAP_BLE_PASSKEY_NOTIF_EVT: // ESP_IO_CAP_OUT
+    // The app will receive this evt when the IO has Output capability and the peer device IO
+    // has Input capability. Show the passkey number to the user to input it in the peer device.
+    logger.info("BLE GAP PASSKEY_NOTIF passkey: {}", (int)param->ble_security.key_notif.passkey);
+    break;
+
+  case ESP_GAP_BLE_NC_REQ_EVT: // ESP_IO_CAP_IO
+    // The app will receive this event when the IO has DisplayYesNO capability and the peer
+    // device IO also has DisplayYesNo capability. show the passkey number to the user to
+    // confirm it with the number displayed by peer device.
+    logger.info("BLE GAP NC_REQ passkey: {}", (int)param->ble_security.key_notif.passkey);
+    esp_ble_confirm_reply(param->ble_security.key_notif.bd_addr, true);
+    break;
+
+  case ESP_GAP_BLE_PASSKEY_REQ_EVT: // ESP_IO_CAP_IN
+    // The app will receive this evt when the IO has Input capability and the peer device IO has
+    // Output capability. See the passkey number on the peer device and send it back.
+    logger.info("BLE GAP PASSKEY_REQ");
+    // esp_ble_passkey_reply(param->ble_security.ble_req.bd_addr, true, 1234);
+    break;
+
+  case ESP_GAP_BLE_OOB_REQ_EVT:
+    // OOB request event
+    logger.info("BLE GAP OOB_REQ");
+    // esp_ble_oob_req_reply(param->ble_security.ble_req.bd_addr, TK, sizeof(TK));
+    break;
+
+  case ESP_GAP_BLE_SC_OOB_REQ_EVT:
+    // secure connection oob request event
+    logger.info("BLE GAP SC_OOB_REQ");
+    // esp_ble_sc_oob_req_reply(param->ble_security.ble_req.bd_addr, ble_oob_sec_data.oob_c, ble_oob_sec_data.oob_r);
+    break;
+
+  case ESP_GAP_BLE_SC_CR_LOC_OOB_EVT:
+    // secure connection create oob data complete event
+    logger.info("BLE GAP SC_CR_LOC_OOB");
+    // retrieve and store the local oob data
+    // memcpy(ble_oob_sec_data.oob_c, param->ble_security.oob_data.oob_c, ESP_BT_OCTET16_LEN);
+    // memcpy(ble_oob_sec_data.oob_r, param->ble_security.oob_data.oob_r, ESP_BT_OCTET16_LEN);
+    // save that we've received the local oob data
+    // created_ble_oob_data = true;
+    break;
+
+  case ESP_GAP_BLE_SEC_REQ_EVT:
+    logger.info("BLE GAP SEC_REQ");
+    // Send the positive(true) security response to the peer device to accept the security
+    // request. If not accept the security request, should send the security response with
+    // negative(false) accept value.
+    esp_ble_gap_security_rsp(param->ble_security.ble_req.bd_addr, true);
+    break;
+
+  case ESP_GAP_BLE_PHY_UPDATE_COMPLETE_EVT:
+    logger.info("BLE GAP PHY_UPDATE_COMPLETE");
+    break;
+
   case ESP_GAP_BLE_UPDATE_CONN_PARAMS_EVT:
     logger.info("update connection params status = {}, min_int = {}, max_int = {},conn_int = {},latency = {}, timeout = {}",
                 (int)param->update_conn_params.status,
@@ -372,9 +580,10 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
     if (!param->write.is_prep){
       // the data length of gattc write  must be less than GATTS_DEMO_CHAR_VAL_LEN_MAX.
       logger.info("GATT_WRITE_EVT, handle = {}, value len = {}, value :", param->write.handle, param->write.len);
-      // TODO: UPDATE
-      // esp_log_buffer_hex("", param->write.value, param->write.len);
+      std::vector<uint8_t> data(param->write.value, param->write.value + param->write.len);
+      logger.info("data: {::x}", data);
       if (gfps_handle_table[IDX_CHAR_CFG_KB_PAIRING] == param->write.handle && param->write.len == 2){
+        logger.info("write to IDX_CHAR_CFG_KB_PAIRING");
         uint16_t descr_value = param->write.value[1]<<8 | param->write.value[0];
         if (descr_value == 0x0001){
           logger.info("notify enable");
@@ -405,42 +614,26 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
         }
       }
       // TODO: UPDATE
-      else if (gfps_handle_table[IDX_CHAR_CFG_PASSKEY] == param->write.handle && param->write.len == 2){
-        uint16_t descr_value = param->write.value[1]<<8 | param->write.value[0];
-        if (descr_value == 0x0001){
-          logger.info("notify enable");
-          uint8_t notify_data[15];
-          for (int i = 0; i < sizeof(notify_data); ++i)
-            {
-              notify_data[i] = i % 0xff;
-            }
-          //the size of notify_data[] need less than MTU size
-          esp_ble_gatts_send_indicate(gatts_if, param->write.conn_id, gfps_handle_table[IDX_CHAR_VAL_PASSKEY],
-                                      sizeof(notify_data), notify_data, false);
-        }else if (descr_value == 0x0002){
-          logger.info("indicate enable");
-          uint8_t indicate_data[15];
-          for (int i = 0; i < sizeof(indicate_data); ++i)
-            {
-              indicate_data[i] = i % 0xff;
-            }
-          //the size of indicate_data[] need less than MTU size
-          esp_ble_gatts_send_indicate(gatts_if, param->write.conn_id, gfps_handle_table[IDX_CHAR_VAL_PASSKEY],
-                                      sizeof(indicate_data), indicate_data, true);
-        }
-        else if (descr_value == 0x0000){
-          logger.info("notify/indicate disable ");
-        }else{
-          logger.error("unknown descr value");
-          // esp_log_buffer_hex("", param->write.value, param->write.len);
-        }
+      else if (gfps_handle_table[IDX_CHAR_VAL_KB_PAIRING] == param->write.handle){
+        logger.info("write to IDX_CHAR_VAL_KB_PAIRING");
+      }
+      else if (gfps_handle_table[IDX_CHAR_CFG_PASSKEY] == param->write.handle){
+        logger.info("write to IDX_CHAR_CFG_PASSKEY");
+      }
+      else if (gfps_handle_table[IDX_CHAR_VAL_PASSKEY] == param->write.handle){
+        logger.info("write to IDX_CHAR_VAL_PASSKEY");
+      }
+      else if (gfps_handle_table[IDX_CHAR_VAL_ACCOUNT_KEY] == param->write.handle){
+        logger.info("write to IDX_CHAR_VAL_ACCOUNT_KEY");
       }
       /* send response when param->write.need_rsp is true*/
       if (param->write.need_rsp){
+        logger.info("send response");
         esp_ble_gatts_send_response(gatts_if, param->write.conn_id, param->write.trans_id, ESP_GATT_OK, NULL);
       }
     }else{
       /* handle prepare write */
+      logger.info("ESP_GATTS_PREP_WRITE_EVT");
       example_prepare_write_event_env(gatts_if, &prepare_write_env, param);
     }
     break;
@@ -676,6 +869,58 @@ nearby_platform_status nearby_platform_BleInit(
     const nearby_platform_BleInterface* ble_interface) {
 
   logger.info("Initializing BLE");
+
+  esp_err_t ret;
+
+  // TODO: this auth mode works, but requires many prompts
+  esp_ble_auth_req_t auth_req = ESP_LE_AUTH_BOND;
+
+  // TODO: this auth mode times out or blocks after getting the SC_OOB_REQ event
+  // esp_ble_auth_req_t auth_req = ESP_LE_AUTH_REQ_SC_MITM_BOND;
+
+  if ((ret = esp_ble_gap_set_security_param(ESP_BLE_SM_AUTHEN_REQ_MODE, &auth_req, 1)) !=
+      ESP_OK) {
+    logger.error("GAP set_security_param AUTHEN_REQ_MODE failed: {}", ret);
+    return kNearbyStatusError;
+  }
+
+  esp_ble_io_cap_t iocap = ESP_IO_CAP_NONE; // device is not capable of input or output, unsecure
+  if ((ret = esp_ble_gap_set_security_param(ESP_BLE_SM_IOCAP_MODE, &iocap, 1)) != ESP_OK) {
+    logger.error("GAP set_security_param IOCAP_MODE failed: {}", ret);
+    return kNearbyStatusError;
+  }
+
+  // uint8_t oob_support = ESP_BLE_OOB_ENABLE;
+  uint8_t oob_support = ESP_BLE_OOB_DISABLE;
+  if ((ret = esp_ble_gap_set_security_param(ESP_BLE_SM_OOB_SUPPORT, &oob_support, sizeof(uint8_t))) != ESP_OK) {
+    logger.error("GAP set_security_param OOB_SUPPORT failed: {}", ret);
+    return kNearbyStatusError;
+  }
+
+  uint8_t spec_auth = ESP_BLE_ONLY_ACCEPT_SPECIFIED_AUTH_ENABLE;
+  if ((ret = esp_ble_gap_set_security_param(ESP_BLE_SM_ONLY_ACCEPT_SPECIFIED_SEC_AUTH, &spec_auth, sizeof(uint8_t))) != ESP_OK) {
+    logger.error("GAP set_security_param ONLY_ACCEPT_SPECIFIED_SEC_AUTH failed: {}", ret);
+    return kNearbyStatusError;
+  }
+
+  uint8_t init_key = ESP_BLE_ENC_KEY_MASK | ESP_BLE_ID_KEY_MASK;
+  uint8_t rsp_key = ESP_BLE_ENC_KEY_MASK | ESP_BLE_ID_KEY_MASK;
+  uint8_t key_size = 16; //the key size should be 7~16 bytes
+  uint32_t passkey = 1234;//ESP_IO_CAP_OUT
+  if ((ret = esp_ble_gap_set_security_param(ESP_BLE_SM_SET_INIT_KEY, &init_key, 1)) != ESP_OK) {
+    logger.error("GAP set_security_param SET_INIT_KEY failed: {}", ret);
+    return kNearbyStatusError;
+  }
+
+  if ((ret = esp_ble_gap_set_security_param(ESP_BLE_SM_SET_RSP_KEY, &rsp_key, 1)) != ESP_OK) {
+    logger.error("GAP set_security_param SET_RSP_KEY failed: {}", ret);
+    return kNearbyStatusError;
+  }
+
+  if ((ret = esp_ble_gap_set_security_param(ESP_BLE_SM_MAX_KEY_SIZE, &key_size, 1)) != ESP_OK) {
+    logger.error("GAP set_security_param MAX_KEY_SIZE failed: {}", ret);
+    return kNearbyStatusError;
+  }
 
   esp_ble_gatts_register_callback(gatts_event_handler);
   esp_ble_gap_register_callback(gap_event_handler);

@@ -16,6 +16,9 @@ For additional information and to see a reference library for implementing the
 nearby/embedded framework, see [google/nearby/embedded
 github](https://github.com/google/nearby/tree/main/embedded)
 
+For some help / debugging information, see
+[google/nearby/fast-pair/help](https://developers.google.com/nearby/fast-pair/help).
+
 To run this example, you must use `menuconfig` to configure the project and set
 the following attributes:
 
