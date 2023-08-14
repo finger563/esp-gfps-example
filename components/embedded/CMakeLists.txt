@@ -5,3 +5,4 @@ idf_component_register(
 )
 add_definitions(-DNEARBY_TRACE_LEVEL=2)
 add_definitions(-DNEARBY_PLATFORM_USE_MBEDTLS=1)
+# add_definitions(-DNEARBY_PLATFORM_HAS_SE)

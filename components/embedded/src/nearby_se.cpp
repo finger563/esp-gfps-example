@@ -61,6 +61,10 @@ nearby_platform_status nearby_platform_Aes128Decrypt(
   return kNearbyStatusOK;
 }
 
+#endif // !defined(NEARBY_PLATFORM_USE_MBEDTLS)
+
+#if defined(NEARBY_PLATFORM_HAS_SE)
+
 // Generates a shared sec256p1 secret using remote party public key and this
 // device's private key.
 //
@@ -72,15 +76,15 @@ nearby_platform_status nearby_platform_GenSec256r1Secret(
   return kNearbyStatusOK;
 }
 
-#endif // !defined(NEARBY_PLATFORM_USE_MBEDTLS)
+#endif // defined(NEARBY_PLATFORM_HAS_SE)
 
 // Returns anti-spoofing 128 bit private key.
 // Only used if the implementation also uses the
 // nearby_platform_GenSec256r1Secret() routine defined in gen_secret.c.
 // Return NULL if not implemented.
 const uint8_t* nearby_platform_GetAntiSpoofingPrivateKey() {
-  // TODO: Implement.
-  return nullptr;
+  static constexpr char* kAntiSpoofingPrivateKey = CONFIG_ANTISPOOFING_PRIVATE_KEY;
+  return (const uint8_t*)kAntiSpoofingPrivateKey;
 }
 
 // Initializes secure element module

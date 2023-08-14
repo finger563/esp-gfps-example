@@ -12,4 +12,9 @@ menu "Configuration"
         help
             Set the model id (24 bit)
 
+    config ANTISPOOFING_PRIVATE_KEY
+        string "Anti-Spoofing Private Key"
+        help
+            Set the anti-spoofing private key, as a base64 uncompressed string.
+
 endmenu
