@@ -27,6 +27,13 @@ the following attributes:
   spoofing private key that the fast pair dashboard generated for the associated
   SKU+Model ID provided above.
 
+Fast Pair Console:
+![CleanShot 2023-08-14 at 11 50 58](https://github.com/finger563/esp-gfps-example/assets/213467/d7c81025-46f9-4c7b-b0f7-8bde0b772426)
+
+Menuconfig:
+![CleanShot 2023-08-14 at 11 54 18](https://github.com/finger563/esp-gfps-example/assets/213467/68b81bb2-ab26-456e-a69e-7c7ca98c2327)
+
+
 ## Cloning
 
 Since this repo contains a submodule, you need to make sure you clone it
