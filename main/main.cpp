@@ -8,6 +8,44 @@
 
 using namespace std::chrono_literals;
 
+void on_fp_event(nearby_event_Event* event) {
+  switch (event->event_type) {
+  case kNearbyEventMessageStreamConnected: {
+    fmt::print("on_fp_event: kNearbyEventMessageStreamConnected\n");
+    // cast event->payload to nearby_event_MessageStreamConnected which has a uint64_t peer_address
+    nearby_event_MessageStreamConnected* connected = (nearby_event_MessageStreamConnected*)event->payload;
+    fmt::print("peer_address: 0x{:x}\n", connected->peer_address);
+  }
+    break;
+  case kNearbyEventMessageStreamDisconnected: {
+    fmt::print("on_fp_event: kNearbyEventMessageStreamDisconnected\n");
+    // cast to nearby_event_MessageStreamDisconnected which has a uint64_t peer_address
+    nearby_event_MessageStreamDisconnected* disconnected = (nearby_event_MessageStreamDisconnected*)event->payload;
+    fmt::print("peer_address: 0x{:x}\n", disconnected->peer_address);
+  }
+    break;
+  case kNearbyEventMessageStreamReceived: {
+    fmt::print("on_fp_event: kNearbyEventMessageStreamReceived\n");
+    // cast to nearby_event_MessageStreamReceived which has:
+    //  - uint64_t peer_address
+    //  - uint8_t message_group
+    //  - uint8_t message_code
+    //  - size_t length
+    //  - uint8_t* data
+    nearby_event_MessageStreamReceived* received = (nearby_event_MessageStreamReceived*)event->payload;
+    fmt::print("peer_address: 0x{:x}\n", received->peer_address);
+    fmt::print("message_group: {}\n", received->message_group);
+    fmt::print("message_code: {}\n", received->message_code);
+    fmt::print("length: {}\n", received->length);
+    std::vector<uint8_t> data(received->data, received->data + received->length);
+    fmt::print("data: {::#x}\n", data);
+  }
+    break;
+  default:
+    break;
+  }
+}
+
 /**
  * @breif Main application entry point
  */
@@ -61,7 +99,10 @@ extern "C" void app_main(void) {
   // Calls into google/nearby/embedded to initialize the nearby framework, using
   // the platform specific implementation of the nearby API which is in the
   // embedded component.
-  nearby_fp_client_Init(NULL);
+  const nearby_fp_client_Callbacks callbacks = {
+    .on_event = on_fp_event,
+  };
+  nearby_fp_client_Init(&callbacks);
   nearby_fp_client_SetAdvertisement(NEARBY_FP_ADVERTISEMENT_DISCOVERABLE);
 
   // loop forever
