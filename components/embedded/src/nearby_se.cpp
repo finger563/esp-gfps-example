@@ -78,13 +78,46 @@ nearby_platform_status nearby_platform_GenSec256r1Secret(
 
 #endif // defined(NEARBY_PLATFORM_HAS_SE)
 
+// from https://stackoverflow.com/a/44562527
+std::string base64_decode(const std::string_view in) {
+  // table from '+' to 'z'
+  const uint8_t lookup[] = {
+      62,  255, 62,  255, 63,  52,  53, 54, 55, 56, 57, 58, 59, 60, 61, 255,
+      255, 0,   255, 255, 255, 255, 0,  1,  2,  3,  4,  5,  6,  7,  8,  9,
+      10,  11,  12,  13,  14,  15,  16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
+      255, 255, 255, 255, 63,  255, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35,
+      36,  37,  38,  39,  40,  41,  42, 43, 44, 45, 46, 47, 48, 49, 50, 51};
+  static_assert(sizeof(lookup) == 'z' - '+' + 1);
+
+  std::string out;
+  int val = 0, valb = -8;
+  for (uint8_t c : in) {
+    if (c < '+' || c > 'z')
+      break;
+    c -= '+';
+    if (lookup[c] >= 64)
+      break;
+    val = (val << 6) + lookup[c];
+    valb += 6;
+    if (valb >= 0) {
+      out.push_back(char((val >> valb) & 0xFF));
+      valb -= 8;
+    }
+  }
+  return out;
+}
+
 // Returns anti-spoofing 128 bit private key.
 // Only used if the implementation also uses the
 // nearby_platform_GenSec256r1Secret() routine defined in gen_secret.c.
 // Return NULL if not implemented.
 const uint8_t* nearby_platform_GetAntiSpoofingPrivateKey() {
   static constexpr char* kAntiSpoofingPrivateKey = CONFIG_ANTISPOOFING_PRIVATE_KEY;
-  return (const uint8_t*)kAntiSpoofingPrivateKey;
+  static std::string_view key(kAntiSpoofingPrivateKey);
+  static std::string decoded = base64_decode(key);
+  static std::vector<uint8_t> decoded_vector(decoded.begin(), decoded.end());
+  fmt::print("Anti-spoofing private key: {::#x}\n", decoded_vector);
+  return reinterpret_cast<const uint8_t*>(decoded.data());
 }
 
 // Initializes secure element module
