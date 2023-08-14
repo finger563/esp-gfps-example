@@ -16,6 +16,17 @@ For additional information and to see a reference library for implementing the
 nearby/embedded framework, see [google/nearby/embedded
 github](https://github.com/google/nearby/tree/main/embedded)
 
+To run this example, you must use `menuconfig` to configure the project and set
+the following attributes:
+
+- `BLE Device Name`: this should match the `SKU Name` that you have configured
+  in the Fast Pair dashboard.
+- `Model ID`: this should match the model id (24 bit) that the Fast Pair
+  dashboard generated for your device.
+- `Anti-Spoofing Private Key`: this should match the base64 string encoded anti
+  spoofing private key that the fast pair dashboard generated for the associated
+  SKU+Model ID provided above.
+
 ## Cloning
 
 Since this repo contains a submodule, you need to make sure you clone it
