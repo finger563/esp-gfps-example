@@ -1,7 +1,5 @@
 #include "embedded.hpp"
 
-#define CONFIG_SET_RAW_ADV_DATA
-
 static espp::Logger logger({.tag = "GFPS BLE", .level = espp::Logger::Verbosity::DEBUG});
 
 /* Attributes State Machine */
@@ -64,47 +62,6 @@ static uint8_t raw_scan_rsp_data[] = {
 };
 
 static std::vector<uint8_t> raw_adv_data;
-
-static uint8_t service_uuid[16] = {
-  /* LSB <--------------------------------------------------------------------------------> MSB */
-  //first uuid, 16bit, [12],[13] is the value
-  // 0xfb, 0x34, 0x9b, 0x5f, 0x80, 0x00, 0x00, 0x80, 0x00, 0x10, 0x00, 0x00, 0xFF, 0x00, 0x00, 0x00,
-  0xfb, 0x34, 0x9b, 0x5f, 0x80, 0x00, 0x00, 0x80, 0x00, 0x10, 0x00, 0x00, 0x2C, 0xFE, 0x00, 0x00,
-};
-
-/* The length of adv data must be less than 31 bytes */
-static esp_ble_adv_data_t adv_data = {
-  .set_scan_rsp        = false,
-  .include_name        = true,
-  .include_txpower     = true,
-  .min_interval        = 0x0006, //slave connection min interval, Time = min_interval * 1.25 msec
-  .max_interval        = 0x0010, //slave connection max interval, Time = max_interval * 1.25 msec
-  .appearance          = 0x00,
-  .manufacturer_len    = 0,    //TEST_MANUFACTURER_DATA_LEN,
-  .p_manufacturer_data = NULL, //test_manufacturer,
-  .service_data_len    = 0,
-  .p_service_data      = NULL,
-  .service_uuid_len    = sizeof(service_uuid),
-  .p_service_uuid      = service_uuid,
-  .flag = (ESP_BLE_ADV_FLAG_GEN_DISC | ESP_BLE_ADV_FLAG_BREDR_NOT_SPT),
-};
-
-// scan response data
-static esp_ble_adv_data_t scan_rsp_data = {
-  .set_scan_rsp        = true,
-  .include_name        = true,
-  .include_txpower     = true,
-  .min_interval        = 0x0006,
-  .max_interval        = 0x0010,
-  .appearance          = 0x00,
-  .manufacturer_len    = 0, //TEST_MANUFACTURER_DATA_LEN,
-  .p_manufacturer_data = NULL, //&test_manufacturer[0],
-  .service_data_len    = 0,
-  .p_service_data      = NULL,
-  .service_uuid_len    = sizeof(service_uuid),
-  .p_service_uuid      = service_uuid,
-  .flag = (ESP_BLE_ADV_FLAG_GEN_DISC | ESP_BLE_ADV_FLAG_BREDR_NOT_SPT),
-};
 
 static esp_ble_adv_params_t adv_params = {
   .adv_int_min         = 0x20,
@@ -282,7 +239,6 @@ static const esp_gatts_attr_db_t gatt_db[GFPS_IDX_NB] =
 static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param)
 {
   switch (event) {
-#ifdef CONFIG_SET_RAW_ADV_DATA
   case ESP_GAP_BLE_ADV_DATA_RAW_SET_COMPLETE_EVT:
     adv_config_done &= (~ADV_CONFIG_FLAG);
     if (adv_config_done == 0){
@@ -295,20 +251,6 @@ static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param
       esp_ble_gap_start_advertising(&adv_params);
     }
     break;
-#else
-  case ESP_GAP_BLE_ADV_DATA_SET_COMPLETE_EVT:
-    adv_config_done &= (~ADV_CONFIG_FLAG);
-    if (adv_config_done == 0){
-      esp_ble_gap_start_advertising(&adv_params);
-    }
-    break;
-  case ESP_GAP_BLE_SCAN_RSP_DATA_SET_COMPLETE_EVT:
-    adv_config_done &= (~SCAN_RSP_CONFIG_FLAG);
-    if (adv_config_done == 0){
-      esp_ble_gap_start_advertising(&adv_params);
-    }
-    break;
-#endif
   case ESP_GAP_BLE_ADV_START_COMPLETE_EVT:
     /* advertising start complete event to indicate advertising start successfully or failed */
     if (param->adv_start_cmpl.status != ESP_BT_STATUS_SUCCESS) {
@@ -407,13 +349,8 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
     if (set_dev_name_ret){
       logger.error("set device name failed, error code = {:x}", set_dev_name_ret);
     }
-#ifdef CONFIG_SET_RAW_ADV_DATA
     esp_err_t adv_ret = esp_ble_gap_config_adv_data_raw(raw_adv_data.data(), raw_adv_data.size());
     esp_err_t scan_ret = esp_ble_gap_config_scan_rsp_data_raw(raw_scan_rsp_data, sizeof(raw_scan_rsp_data));
-#else
-    esp_err_t adv_ret = esp_ble_gap_config_adv_data(&adv_data);
-    esp_err_t scan_ret = esp_ble_gap_config_scan_rsp_data(&scan_rsp_data);
-#endif
     esp_err_t create_attr_ret = esp_ble_gatts_create_attr_tab(gatt_db, gatts_if, GFPS_IDX_NB, SVC_INST_ID);
     if (adv_ret){
       logger.error("config adv data failed, error code = {:x}", adv_ret);
@@ -716,14 +653,8 @@ nearby_platform_status nearby_platform_SetAdvertisement(
   logger.info("Setting advertisement");
   raw_adv_data.assign(payload, payload + length);
   logger.info("Payload: {::#x}", raw_adv_data);
-  #ifdef CONFIG_SET_RAW_ADV_DATA
   esp_err_t adv_ret = esp_ble_gap_config_adv_data_raw(raw_adv_data.data(), raw_adv_data.size());
   esp_err_t scan_ret = esp_ble_gap_config_scan_rsp_data_raw(raw_scan_rsp_data, sizeof(raw_scan_rsp_data));
-  #else
-  //config scan response data
-  auto adv_ret = esp_ble_gap_config_adv_data(&adv_data);
-  auto scan_ret = esp_ble_gap_config_scan_rsp_data(&scan_rsp_data);
-  #endif
   if (adv_ret){
     logger.error("config adv data failed, error code = {:x} ", (int)adv_ret);
     return kNearbyStatusError;
@@ -732,11 +663,7 @@ nearby_platform_status nearby_platform_SetAdvertisement(
     logger.error("config scan response data failed, error code = {:x}", (int)scan_ret);
     return kNearbyStatusError;
   }
-  // set the advertising interval
-  adv_data.min_interval = interval;
-  adv_data.max_interval = interval;
-  scan_rsp_data.min_interval = interval;
-  scan_rsp_data.max_interval = interval;
+  // TODO: set the advertising interval
   // update the state
   is_advertising = true;
   return kNearbyStatusOK;
