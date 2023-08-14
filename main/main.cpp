@@ -25,6 +25,9 @@ extern "C" void app_main(void) {
   }
   ESP_ERROR_CHECK( ret );
 
+  // Calls into google/nearby/embedded to initialize the nearby framework, using
+  // the platform specific implementation of the nearby API which is in the
+  // embedded component.
   nearby_fp_client_Init(NULL);
   nearby_fp_client_SetAdvertisement(NEARBY_FP_ADVERTISEMENT_DISCOVERABLE);
 

@@ -7,6 +7,9 @@ uint8_t nearby_platform_Rand() {
   return (uint8_t)esp_random();
 }
 
+#if !defined(NEARBY_PLATFORM_USE_MBEDTLS)
+
+
 // Computes the sha256 incrementally. Sha256Start() is called first, then
 // Sha256Update() one or more times, and finally Sha256Finish().
 nearby_platform_status nearby_platform_Sha256Start() {
@@ -68,6 +71,8 @@ nearby_platform_status nearby_platform_GenSec256r1Secret(
   // TODO: Implement.
   return kNearbyStatusOK;
 }
+
+#endif // !defined(NEARBY_PLATFORM_USE_MBEDTLS)
 
 // Returns anti-spoofing 128 bit private key.
 // Only used if the implementation also uses the

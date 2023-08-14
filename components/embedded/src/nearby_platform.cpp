@@ -20,7 +20,10 @@ void* nearby_platform_StartTimer(void (*callback)(), unsigned int delay_ms) {
       .name = "nearby timer",
       .period = std::chrono::milliseconds(0), // one-shot
       .delay = std::chrono::milliseconds(delay_ms),
-      .callback = [callback]() { callback(); return true; },
+      .callback = [callback]() {
+        if (callback) callback();
+        return true;
+      },
     });
   return timer;
 }
@@ -30,6 +33,8 @@ void* nearby_platform_StartTimer(void (*callback)(), unsigned int delay_ms) {
 // timer - Timer handle returned by StartTimer.
 nearby_platform_status nearby_platform_CancelTimer(void* timer) {
   espp::Timer* t = (espp::Timer*)timer;
+  if (!t) return kNearbyStatusError;
+  fmt::print("Cancelling timer\n");
   t->cancel();
   delete t;
   return kNearbyStatusOK;

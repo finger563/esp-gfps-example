@@ -271,33 +271,33 @@ static const esp_gatts_attr_db_t gatt_db[GFPS_IDX_NB] =
 static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param)
 {
   switch (event) {
-    #ifdef CONFIG_SET_RAW_ADV_DATA
-        case ESP_GAP_BLE_ADV_DATA_RAW_SET_COMPLETE_EVT:
-            adv_config_done &= (~ADV_CONFIG_FLAG);
-            if (adv_config_done == 0){
-                esp_ble_gap_start_advertising(&adv_params);
-            }
-            break;
-        case ESP_GAP_BLE_SCAN_RSP_DATA_RAW_SET_COMPLETE_EVT:
-            adv_config_done &= (~SCAN_RSP_CONFIG_FLAG);
-            if (adv_config_done == 0){
-                esp_ble_gap_start_advertising(&adv_params);
-            }
-            break;
-    #else
-        case ESP_GAP_BLE_ADV_DATA_SET_COMPLETE_EVT:
-            adv_config_done &= (~ADV_CONFIG_FLAG);
-            if (adv_config_done == 0){
-                esp_ble_gap_start_advertising(&adv_params);
-            }
-            break;
-        case ESP_GAP_BLE_SCAN_RSP_DATA_SET_COMPLETE_EVT:
-            adv_config_done &= (~SCAN_RSP_CONFIG_FLAG);
-            if (adv_config_done == 0){
-                esp_ble_gap_start_advertising(&adv_params);
-            }
-            break;
-    #endif
+#ifdef CONFIG_SET_RAW_ADV_DATA
+  case ESP_GAP_BLE_ADV_DATA_RAW_SET_COMPLETE_EVT:
+    adv_config_done &= (~ADV_CONFIG_FLAG);
+    if (adv_config_done == 0){
+      esp_ble_gap_start_advertising(&adv_params);
+    }
+    break;
+  case ESP_GAP_BLE_SCAN_RSP_DATA_RAW_SET_COMPLETE_EVT:
+    adv_config_done &= (~SCAN_RSP_CONFIG_FLAG);
+    if (adv_config_done == 0){
+      esp_ble_gap_start_advertising(&adv_params);
+    }
+    break;
+#else
+  case ESP_GAP_BLE_ADV_DATA_SET_COMPLETE_EVT:
+    adv_config_done &= (~ADV_CONFIG_FLAG);
+    if (adv_config_done == 0){
+      esp_ble_gap_start_advertising(&adv_params);
+    }
+    break;
+  case ESP_GAP_BLE_SCAN_RSP_DATA_SET_COMPLETE_EVT:
+    adv_config_done &= (~SCAN_RSP_CONFIG_FLAG);
+    if (adv_config_done == 0){
+      esp_ble_gap_start_advertising(&adv_params);
+    }
+    break;
+#endif
   case ESP_GAP_BLE_ADV_START_COMPLETE_EVT:
     /* advertising start complete event to indicate advertising start successfully or failed */
     if (param->adv_start_cmpl.status != ESP_BT_STATUS_SUCCESS) {
@@ -409,7 +409,7 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
       ESP_LOGE(GATTS_TABLE_TAG, "config scan response data failed, error code = %x", ret);
     }
     adv_config_done |= SCAN_RSP_CONFIG_FLAG;
-#endif    adv_config_done |= SCAN_RSP_CONFIG_FLAG;
+#endif
     esp_err_t create_attr_ret = esp_ble_gatts_create_attr_tab(gatt_db, gatts_if, GFPS_IDX_NB, SVC_INST_ID);
     if (create_attr_ret){
       logger.error("create attr table failed, error code = {:x}", create_attr_ret);
@@ -663,6 +663,7 @@ nearby_platform_status nearby_platform_GattNotify(
       // TODO: add support for kAdditionalData
       // TODO: add support for kMessageStreamPsm
     default:
+      fmt::print("[{}] Unknown/unsupported characteristic: {}\n", __func__, (int)characteristic);
       return kNearbyStatusError;
   }
   // now actually send the notification
@@ -693,11 +694,19 @@ nearby_platform_status nearby_platform_SetAdvertisement(
     logger.error("config raw adv data failed, error code = {:x} ", (int)raw_adv_ret);
     return kNearbyStatusError;
   }
+  #if 0
   esp_err_t raw_scan_ret = esp_ble_gap_config_scan_rsp_data_raw((uint8_t*)payload, length);
   if (raw_scan_ret){
     logger.error("config raw scan rsp data failed, error code = {:x}", (int)raw_scan_ret);
     return kNearbyStatusError;
   }
+  #else
+  //config scan response data
+  auto scan_ret = esp_ble_gap_config_adv_data(&scan_rsp_data);
+  if (scan_ret){
+    logger.error("config scan response data failed, error code = {:x}", scan_ret);
+  }
+  #endif
   return kNearbyStatusOK;
 }
 
