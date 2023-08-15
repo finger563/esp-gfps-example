@@ -56,6 +56,8 @@ static SemaphoreHandle_t ble_hidh_cb_semaphore = NULL;
 
 #define SIZEOF_ARRAY(a) (sizeof(a) / sizeof(*a))
 
+static const nearby_platform_BleInterface *g_ble_interface = nullptr;
+
 esp_bd_addr_t ble_peer_address;
 
 esp_bd_addr_t *get_ble_peer_address(void) { return &ble_peer_address; }
@@ -550,6 +552,8 @@ void example_exec_write_event_env(prepare_type_env_t *prepare_write_env, esp_ble
 
 static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble_gatts_cb_param_t *param)
 {
+  uint64_t peer_address = 0;
+
   switch (event) {
   case ESP_GATTS_REG_EVT:{
     logger.info("ESP_GATTS_REG_EVT");
@@ -574,14 +578,73 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
   }
     break;
   case ESP_GATTS_READ_EVT:
-    logger.info("ESP_GATTS_READ_EVT");
+    for (int i = 0; i < 6; i++) {
+      peer_address += ((uint64_t)param->read.bda[i]) << (i * 8);
+    }
+    logger.debug("ESP_GATTS_READ_EVT, peer_address: {:x}", peer_address);
+    // use the g_ble_interface on_gatt_read callback to handle this
+    if (g_ble_interface != nullptr){
+      // make some memory for the output
+      size_t output_size = 32;
+      uint8_t *output = (uint8_t *)malloc(sizeof(uint8_t) * output_size);
+      // get the characteristic handle
+      nearby_fp_Characteristic characteristic;
+      if (param->read.handle ==gfps_handle_table[IDX_CHAR_MODEL_ID])
+        characteristic = kModelId;
+      if (param->read.handle ==gfps_handle_table[IDX_CHAR_KB_PAIRING])
+        characteristic = kKeyBasedPairing;
+      if (param->read.handle ==gfps_handle_table[IDX_CHAR_PASSKEY])
+        characteristic = kPasskey;
+      if (param->read.handle ==gfps_handle_table[IDX_CHAR_ACCOUNT_KEY])
+        characteristic = kAccountKey;
+      if (param->read.handle ==gfps_handle_table[IDX_CHAR_FW_REVISION])
+        characteristic = kFirmwareRevision;
+      // now actually call the callback
+      logger.debug("Calling on_gatt_read with peer_address = {:x}, characteristic = {}", peer_address, (int)characteristic);
+      auto status = g_ble_interface->on_gatt_read(peer_address, characteristic, output, &output_size);
+      // if the status was good, send the response
+      if (status == kNearbyStatusOK) {
+        // write the response to the characteristic
+        esp_ble_gatts_set_attr_value(param->read.handle, output_size, output);
+      } else {
+        logger.error("on_gatt_read returned status {}", (int)status);
+      }
+      // free the memory
+      free(output);
+    }
     break;
   case ESP_GATTS_WRITE_EVT:
+    for (int i = 0; i < 6; i++) {
+      peer_address += ((uint64_t)param->write.bda[i]) << (i * 8);
+    }
+    logger.debug("ESP_GATTS_WRITE_EVT, peer_address: {:x}", peer_address);
     if (!param->write.is_prep){
       // the data length of gattc write  must be less than GATTS_DEMO_CHAR_VAL_LEN_MAX.
       logger.info("GATT_WRITE_EVT, handle = {}, value len = {}, value :", param->write.handle, param->write.len);
       std::vector<uint8_t> data(param->write.value, param->write.value + param->write.len);
       logger.info("data: {::x}", data);
+
+      // use the g_ble_interface on_gatt_write callback to handle this
+      if (g_ble_interface != nullptr){
+        // get the characteristic handle
+        nearby_fp_Characteristic characteristic;
+        if (param->write.handle ==gfps_handle_table[IDX_CHAR_KB_PAIRING])
+          characteristic = kKeyBasedPairing;
+        if (param->write.handle ==gfps_handle_table[IDX_CHAR_PASSKEY])
+          characteristic = kPasskey;
+        if (param->write.handle ==gfps_handle_table[IDX_CHAR_ACCOUNT_KEY])
+          characteristic = kAccountKey;
+        // now actually call the callback
+        logger.debug("Calling on_gatt_write with peer_address = {:x}, characteristic = {}", peer_address, (int)characteristic);
+        auto status = g_ble_interface->on_gatt_write(peer_address, characteristic, param->write.value, param->write.len);
+        // if the status was good, send the response
+        if (status == kNearbyStatusOK) {
+          logger.debug("on_gatt_write returned status OK");
+        } else {
+          logger.error("Error: on_gatt_write returned status {}", (int)status);
+        }
+      }
+
       if (gfps_handle_table[IDX_CHAR_CFG_KB_PAIRING] == param->write.handle && param->write.len == 2){
         logger.info("write to IDX_CHAR_CFG_KB_PAIRING");
         uint16_t descr_value = param->write.value[1]<<8 | param->write.value[0];
@@ -614,8 +677,39 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
         }
       }
       // TODO: UPDATE
-      else if (gfps_handle_table[IDX_CHAR_VAL_KB_PAIRING] == param->write.handle){
+      else if (gfps_handle_table[IDX_CHAR_VAL_KB_PAIRING] == param->write.handle) {
         logger.info("write to IDX_CHAR_VAL_KB_PAIRING");
+        // get the 16 byte encrypted message and the (optional) 64 byte public
+        // key (message data is KbPairing struct)
+        KbPairing kb_pairing;
+        memcpy(&kb_pairing.encrypted_request, param->write.value, 16);
+        if (param->write.len >= 80) {
+          memcpy(&kb_pairing.public_key, param->write.value + 16, 64);
+        }
+        // using the received public key (64 byte point on secp256r1 curve), the
+        // pre-installed Anti-spoofing private key (also on secp256r1 curve),
+        // and the elliptic curve Diffie-Hellman algorithm, to generate a
+        // 256-bit AES key
+        //
+        // use SHA-256 to hash the AES key to get the final 128-bit AES key
+        // (first 128 bits of the result) This is now the anti-spoofing AES key
+        //
+        // Using AES-128, attempt to decrypt the value
+        //
+        // The value provided should contain either the FP provider's current
+        // BLE address or the FP provider's public address.
+        //
+        // NOTE: at the end of the packet, there is alt attached, which should
+        // be tracked as well and any packets with previously received salt
+        // values should be ignored to prevent replay attacks
+        //
+        // Steps:
+        //
+        // 1. Save successful key as K, which is usable for decrypting Passkey
+        //    and Personalized name writes received on this link.
+        // 2. Start a timer to discard K after 10 seconds if pairing has not
+        //    been started
+        // 3. Discard K if this LE link disconnects.
       }
       else if (gfps_handle_table[IDX_CHAR_CFG_PASSKEY] == param->write.handle){
         logger.info("write to IDX_CHAR_CFG_PASSKEY");
@@ -742,6 +836,7 @@ uint64_t nearby_platform_GetBleAddress() {
       radio_mac_addr |= (uint64_t)point[5-i] << (i * 8);
     }
   }
+  logger.debug("radio mac address: 0x{:x}", radio_mac_addr);
   return radio_mac_addr;
 }
 
@@ -750,6 +845,7 @@ uint64_t nearby_platform_GetBleAddress() {
 //
 // address - BLE address to set.
 uint64_t nearby_platform_SetBleAddress(uint64_t address) {
+  logger.warn("SetBleAddress not implemented, trying to set to 0x{:x}", address);
   // TODO: implement, possibly with esp_base_mac_addr_set()
   return 0;
 }
@@ -758,6 +854,7 @@ uint64_t nearby_platform_SetBleAddress(uint64_t address) {
 // Rotates BLE address to a random resolvable private address (RPA). Returns
 // address after change.
 uint64_t nearby_platform_RotateBleAddress() {
+  logger.warn("RotateBleAddress not implemented");
   // TODO: implement
   return 0;
 }
@@ -771,6 +868,7 @@ uint64_t nearby_platform_RotateBleAddress() {
 // Returns a 16 bit PSM number or a negative value on error. When a valid PSM
 // number is returned, the device must be ready to accept L2CAP connections.
 int32_t nearby_platform_GetMessageStreamPsm() {
+  logger.warn("GetMessageStreamPsm not implemented");
   // TODO: implement
   return -1;
 }
@@ -784,6 +882,10 @@ int32_t nearby_platform_GetMessageStreamPsm() {
 nearby_platform_status nearby_platform_GattNotify(
     uint64_t peer_address, nearby_fp_Characteristic characteristic,
     const uint8_t* message, size_t length) {
+  logger.debug("GattNotify: peer_address={:x}, characteristic={}, length={}",
+               peer_address, (int)characteristic, length);
+  std::vector <uint8_t> data(message, message + length);
+  logger.debug("GattNotify: data={::x}", data);
   // look up the attribute handle for the characteristic from the gfp_handle_table
   uint16_t attr_handle = 0;
   switch (characteristic) {
@@ -805,7 +907,7 @@ nearby_platform_status nearby_platform_GattNotify(
       // TODO: add support for kAdditionalData
       // TODO: add support for kMessageStreamPsm
     default:
-      fmt::print("[{}] Unknown/unsupported characteristic: {}\n", __func__, (int)characteristic);
+      logger.debug("[{}] Unknown/unsupported characteristic: {}", __func__, (int)characteristic);
       return kNearbyStatusError;
   }
   // now actually send the notification
@@ -816,6 +918,7 @@ nearby_platform_status nearby_platform_GattNotify(
                                               (uint8_t*)message,
                                               false); // false = notification, true = indication
   if (err != ESP_OK) {
+    logger.error("esp_ble_gatts_send_indicate failed: {}", err);
     return kNearbyStatusError;
   }
   return kNearbyStatusOK;
@@ -869,6 +972,9 @@ nearby_platform_status nearby_platform_BleInit(
     const nearby_platform_BleInterface* ble_interface) {
 
   logger.info("Initializing BLE");
+
+  // save the ble_interface (on_gatt_write and on_gatt_read callbacks) for later
+  g_ble_interface = ble_interface;
 
   esp_err_t ret;
 

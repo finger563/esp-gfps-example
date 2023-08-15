@@ -3,7 +3,7 @@ idf_component_register(
   SRC_DIRS "../../external/nearby/embedded/client/source" "../../external/nearby/embedded/common/source" "../../external/nearby/embedded/common/source/mbedtls" "src"
   REQUIRES "bt" "mbedtls" "nvs_flash" "logger" "task" "timer"
 )
-add_definitions(-DNEARBY_TRACE_LEVEL=2)
+add_definitions(-DNEARBY_TRACE_LEVEL=1)
 add_definitions(-DNEARBY_PLATFORM_USE_MBEDTLS=1)
 add_definitions(-DNEARBY_FP_ENABLE_BATTERY_NOTIFICATION=0)
 add_definitions(-DNEARBY_FP_ENABLE_ADDITIONAL_DATA=0)

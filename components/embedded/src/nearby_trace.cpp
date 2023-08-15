@@ -14,28 +14,31 @@ void nearby_platform_Trace(nearby_platform_TraceLevel level,
                            const char *filename, int lineno, const char *fmt,
                            ...) {
   switch (level) {
+  case kTraceLevelVerbose:
+    fmt::print(fg(fmt::color::dark_gray), "[GFPS/V]{}:{}: ", filename, lineno);
+    break;
   case kTraceLevelDebug:
-    logger.debug("");
+    fmt::print(fg(fmt::color::gray), "[GFPS/D]{}:{}: ", filename, lineno);
     break;
   case kTraceLevelInfo:
-    logger.info("");
+    fmt::print(fg(fmt::terminal_color::green), "[GFPS/I]{}:{}: ", filename, lineno);
     break;
   case kTraceLevelWarning:
-    logger.warn("");
+    fmt::print(fg(fmt::terminal_color::yellow), "[GFPS/W]{}:{}: ", filename, lineno);
     break;
   case kTraceLevelError:
-    logger.error("");
+    fmt::print(fg(fmt::terminal_color::red), "[GFPS/E]{}:{}: ", filename, lineno);
     break;
   default:
     logger.error("Unknown trace level: {}", (int)level);
+    fmt::print(fg(fmt::terminal_color::red), "[GFPS/U]{}:{}: ", filename, lineno);
     break;
   }
   va_list args;
   va_start(args, fmt);
-  printf("%s:%d: ", filename, lineno);
   vprintf(fmt, args);
-  printf("\n");
   va_end(args);
+  printf("\n");
 }
 
 // Processes assert. Processes a failed assertion.
