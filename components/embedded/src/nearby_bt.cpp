@@ -95,12 +95,14 @@ uint64_t nearby_platform_GetPublicAddress() {
 // single logical device set.
 // Return 0 if this device does not have a secondary identity address.
 uint64_t nearby_platform_GetSecondaryPublicAddress() {
+  logger.warn("GetSecondaryPublicAddress not implemented");
   return 0;
 }
 
 // Returns passkey used during pairing
 uint32_t nearby_platfrom_GetPairingPassKey() {
-  return 1234;
+  logger.warn("GetPairingPassKey not implemented");
+  return 0;
 }
 
 // Provides the passkey received from the remote party.
@@ -109,6 +111,7 @@ uint32_t nearby_platfrom_GetPairingPassKey() {
 //
 // passkey - Passkey
 void nearby_platform_SetRemotePasskey(uint32_t passkey) {
+  logger.warn("SetRemotePasskey not implemented");
   // TODO: implement
 }
 
@@ -117,22 +120,24 @@ void nearby_platform_SetRemotePasskey(uint32_t passkey) {
 // remote_party_br_edr_address - BT address of peer.
 nearby_platform_status nearby_platform_SendPairingRequest(
     uint64_t remote_party_br_edr_address) {
+  logger.warn("SendPairingRequest not implemented");
   // TODO: implement
-
   return kNearbyStatusOK;
 }
 
 // Switches the device capabilities field back to default so that new
 // pairings continue as expected.
 nearby_platform_status nearby_platform_SetDefaultCapabilities() {
-
+  logger.warn("SetDefaultCapabilities not implemented");
+  // TODO: implement
   return kNearbyStatusOK;
 }
 
 // Switches the device capabilities field to Fast Pair required configuration:
 // DisplayYes/No so that `confirm passkey` pairing method will be used.
 nearby_platform_status nearby_platform_SetFastPairCapabilities() {
-
+  logger.warn("SetFastPairCapabilities not implemented");
+  // TODO: implement
   return kNearbyStatusOK;
 }
 
@@ -152,6 +157,7 @@ nearby_platform_status nearby_platform_SetDeviceName(const char* name) {
 //          On output, returns size of name in buffer.
 nearby_platform_status nearby_platform_GetDeviceName(char* name,
                                                      size_t* length) {
+  logger.warn("GetDeviceName not implemented");
   // TODO: implement
   return kNearbyStatusOK;
 }
@@ -173,6 +179,7 @@ bool nearby_platform_IsInPairingMode() {
 nearby_platform_status nearby_platform_SendMessageStream(uint64_t peer_address,
                                                          const uint8_t* message,
                                                          size_t length) {
+  logger.warn("SendMessageStream not implemented");
   // TODO: implement
   return kNearbyStatusOK;
 }
@@ -215,7 +222,7 @@ nearby_platform_status nearby_platform_BtInit(
   }
 
   #else
-  logger.info("Bluetooth not enabled in menuconfig, skipping initialization");
+  logger.warn("Bluetooth not enabled in menuconfig, skipping initialization");
   #endif
 
   return kNearbyStatusOK;

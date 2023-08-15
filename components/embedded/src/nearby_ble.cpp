@@ -407,7 +407,7 @@ static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param
      * */
   case ESP_GAP_BLE_AUTH_CMPL_EVT:
     if (!param->ble_security.auth_cmpl.success) {
-      logger.error("BLE GAP AUTH ERROR: 0x{:x}", param->ble_security.auth_cmpl.fail_reason);
+      logger.error("BLE GAP AUTH ERROR: {:#x}", param->ble_security.auth_cmpl.fail_reason);
     } else {
       logger.info("BLE GAP AUTH SUCCESS");
       // log the address of the peer device
@@ -539,7 +539,8 @@ void example_prepare_write_event_env(esp_gatt_if_t gatts_if, prepare_type_env_t 
 
 void example_exec_write_event_env(prepare_type_env_t *prepare_write_env, esp_ble_gatts_cb_param_t *param){
   if (param->exec_write.exec_write_flag == ESP_GATT_PREP_WRITE_EXEC && prepare_write_env->prepare_buf){
-    // esp_log_buffer_hex("", prepare_write_env->prepare_buf, prepare_write_env->prepare_len);
+    std::vector<uint8_t> data(prepare_write_env->prepare_buf, prepare_write_env->prepare_buf + prepare_write_env->prepare_len);
+    logger.debug("ESP_GATT_PREP_WRITE_EXEC: data = {::#x}", data);
   }else{
     logger.info("ESP_GATT_PREP_WRITE_CANCEL");
   }
@@ -553,25 +554,25 @@ void example_exec_write_event_env(prepare_type_env_t *prepare_write_env, esp_ble
 static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble_gatts_cb_param_t *param)
 {
   uint64_t peer_address = 0;
-
+  logger.debug("gatts_profile_event_handler: event = {}, gatts_if = {}", (int)event, (int)gatts_if);
   switch (event) {
   case ESP_GATTS_REG_EVT:{
     logger.info("ESP_GATTS_REG_EVT");
     esp_err_t set_dev_name_ret = esp_ble_gap_set_device_name(CONFIG_DEVICE_NAME);
     if (set_dev_name_ret){
-      logger.error("set device name failed, error code = {:x}", set_dev_name_ret);
+      logger.error("set device name failed, error code = {:#x}", set_dev_name_ret);
     }
     esp_err_t adv_ret = esp_ble_gap_config_adv_data_raw(raw_adv_data.data(), raw_adv_data.size());
     esp_err_t scan_ret = esp_ble_gap_config_scan_rsp_data_raw(raw_scan_rsp_data, sizeof(raw_scan_rsp_data));
     esp_err_t create_attr_ret = esp_ble_gatts_create_attr_tab(gatt_db, gatts_if, GFPS_IDX_NB, SVC_INST_ID);
     if (adv_ret){
-      logger.error("config adv data failed, error code = {:x}", adv_ret);
+      logger.error("config adv data failed, error code = {:#x}", adv_ret);
     }
     if (scan_ret){
-      logger.error("config scan response data failed, error code = {:x}", scan_ret);
+      logger.error("config scan response data failed, error code = {:#x}", scan_ret);
     }
     if (create_attr_ret){
-      logger.error("create attr table failed, error code = {:x}", create_attr_ret);
+      logger.error("create attr table failed, error code = {:#x}", create_attr_ret);
     }
     adv_config_done |= ADV_CONFIG_FLAG;
     adv_config_done |= SCAN_RSP_CONFIG_FLAG;
@@ -581,26 +582,35 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
     for (int i = 0; i < 6; i++) {
       peer_address += ((uint64_t)param->read.bda[i]) << (i * 8);
     }
-    logger.debug("ESP_GATTS_READ_EVT, peer_address: {:x}", peer_address);
+    logger.debug("ESP_GATTS_READ_EVT, peer_address: {:#x}", peer_address);
     // use the g_ble_interface on_gatt_read callback to handle this
     if (g_ble_interface != nullptr){
+      // get the characteristic handle
+      nearby_fp_Characteristic characteristic;
+      if (param->read.handle ==gfps_handle_table[IDX_CHAR_VAL_MODEL_ID]) {
+        logger.debug("read model id");
+        characteristic = kModelId;
+      } else if (param->read.handle ==gfps_handle_table[IDX_CHAR_VAL_KB_PAIRING]) {
+        logger.debug("read kb pairing");
+        characteristic = kKeyBasedPairing;
+      } else if (param->read.handle ==gfps_handle_table[IDX_CHAR_VAL_PASSKEY]) {
+        logger.debug("read passkey");
+        characteristic = kPasskey;
+      } else if (param->read.handle ==gfps_handle_table[IDX_CHAR_VAL_ACCOUNT_KEY]) {
+        logger.debug("read account key");
+        characteristic = kAccountKey;
+      } else if (param->read.handle ==gfps_handle_table[IDX_CHAR_VAL_FW_REVISION]) {
+        logger.debug("read firmware revision");
+        characteristic = kFirmwareRevision;
+      } else {
+        logger.error("Unknown characteristic handle: {}", param->read.handle);
+        break;
+      }
       // make some memory for the output
       size_t output_size = 32;
       uint8_t *output = (uint8_t *)malloc(sizeof(uint8_t) * output_size);
-      // get the characteristic handle
-      nearby_fp_Characteristic characteristic;
-      if (param->read.handle ==gfps_handle_table[IDX_CHAR_MODEL_ID])
-        characteristic = kModelId;
-      if (param->read.handle ==gfps_handle_table[IDX_CHAR_KB_PAIRING])
-        characteristic = kKeyBasedPairing;
-      if (param->read.handle ==gfps_handle_table[IDX_CHAR_PASSKEY])
-        characteristic = kPasskey;
-      if (param->read.handle ==gfps_handle_table[IDX_CHAR_ACCOUNT_KEY])
-        characteristic = kAccountKey;
-      if (param->read.handle ==gfps_handle_table[IDX_CHAR_FW_REVISION])
-        characteristic = kFirmwareRevision;
       // now actually call the callback
-      logger.debug("Calling on_gatt_read with peer_address = {:x}, characteristic = {}", peer_address, (int)characteristic);
+      logger.debug("Calling on_gatt_read with peer_address = {:#x}, characteristic = {}", peer_address, (int)characteristic);
       auto status = g_ble_interface->on_gatt_read(peer_address, characteristic, output, &output_size);
       // if the status was good, send the response
       if (status == kNearbyStatusOK) {
@@ -617,33 +627,10 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
     for (int i = 0; i < 6; i++) {
       peer_address += ((uint64_t)param->write.bda[i]) << (i * 8);
     }
-    logger.debug("ESP_GATTS_WRITE_EVT, peer_address: {:x}", peer_address);
+    logger.debug("ESP_GATTS_WRITE_EVT, peer_address: {:#x}", peer_address);
     if (!param->write.is_prep){
       // the data length of gattc write  must be less than GATTS_DEMO_CHAR_VAL_LEN_MAX.
-      logger.info("GATT_WRITE_EVT, handle = {}, value len = {}, value :", param->write.handle, param->write.len);
-      std::vector<uint8_t> data(param->write.value, param->write.value + param->write.len);
-      logger.info("data: {::x}", data);
-
-      // use the g_ble_interface on_gatt_write callback to handle this
-      if (g_ble_interface != nullptr){
-        // get the characteristic handle
-        nearby_fp_Characteristic characteristic;
-        if (param->write.handle ==gfps_handle_table[IDX_CHAR_KB_PAIRING])
-          characteristic = kKeyBasedPairing;
-        if (param->write.handle ==gfps_handle_table[IDX_CHAR_PASSKEY])
-          characteristic = kPasskey;
-        if (param->write.handle ==gfps_handle_table[IDX_CHAR_ACCOUNT_KEY])
-          characteristic = kAccountKey;
-        // now actually call the callback
-        logger.debug("Calling on_gatt_write with peer_address = {:x}, characteristic = {}", peer_address, (int)characteristic);
-        auto status = g_ble_interface->on_gatt_write(peer_address, characteristic, param->write.value, param->write.len);
-        // if the status was good, send the response
-        if (status == kNearbyStatusOK) {
-          logger.debug("on_gatt_write returned status OK");
-        } else {
-          logger.error("Error: on_gatt_write returned status {}", (int)status);
-        }
-      }
+      logger.info("GATT_WRITE_EVT, handle = {}, value len = {}", param->write.handle, param->write.len);
 
       if (gfps_handle_table[IDX_CHAR_CFG_KB_PAIRING] == param->write.handle && param->write.len == 2){
         logger.info("write to IDX_CHAR_CFG_KB_PAIRING");
@@ -676,49 +663,34 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
           // esp_log_buffer_hex("", param->write.value, param->write.len);
         }
       }
-      // TODO: UPDATE
-      else if (gfps_handle_table[IDX_CHAR_VAL_KB_PAIRING] == param->write.handle) {
-        logger.info("write to IDX_CHAR_VAL_KB_PAIRING");
-        // get the 16 byte encrypted message and the (optional) 64 byte public
-        // key (message data is KbPairing struct)
-        KbPairing kb_pairing;
-        memcpy(&kb_pairing.encrypted_request, param->write.value, 16);
-        if (param->write.len >= 80) {
-          memcpy(&kb_pairing.public_key, param->write.value + 16, 64);
+      else {
+        // use the g_ble_interface on_gatt_write callback to handle this
+        if (g_ble_interface != nullptr){
+          // get the characteristic handle
+          nearby_fp_Characteristic characteristic;
+          if (param->write.handle ==gfps_handle_table[IDX_CHAR_VAL_KB_PAIRING]) {
+            logger.debug("write to IDX_CHAR_VAL_KB_PAIRING");
+            characteristic = kKeyBasedPairing;
+          } else if (param->write.handle ==gfps_handle_table[IDX_CHAR_VAL_PASSKEY]) {
+            logger.debug("write to IDX_CHAR_VAL_PASSKEY");
+            characteristic = kPasskey;
+          } else if (param->write.handle ==gfps_handle_table[IDX_CHAR_VAL_ACCOUNT_KEY]) {
+            logger.debug("write to IDX_CHAR_VAL_ACCOUNT_KEY");
+            characteristic = kAccountKey;
+          } else {
+            logger.error("Unknown characteristic handle: {}", param->write.handle);
+            break;
+          }
+          // now actually call the callback
+          logger.debug("Calling on_gatt_write with peer_address = {:#x}, characteristic = {}", peer_address, (int)characteristic);
+          auto status = g_ble_interface->on_gatt_write(peer_address, characteristic, param->write.value, param->write.len);
+          // if the status was good, send the response
+          if (status == kNearbyStatusOK) {
+            logger.debug("on_gatt_write returned status OK");
+          } else {
+            logger.error("Error: on_gatt_write returned status {}", (int)status);
+          }
         }
-        // using the received public key (64 byte point on secp256r1 curve), the
-        // pre-installed Anti-spoofing private key (also on secp256r1 curve),
-        // and the elliptic curve Diffie-Hellman algorithm, to generate a
-        // 256-bit AES key
-        //
-        // use SHA-256 to hash the AES key to get the final 128-bit AES key
-        // (first 128 bits of the result) This is now the anti-spoofing AES key
-        //
-        // Using AES-128, attempt to decrypt the value
-        //
-        // The value provided should contain either the FP provider's current
-        // BLE address or the FP provider's public address.
-        //
-        // NOTE: at the end of the packet, there is alt attached, which should
-        // be tracked as well and any packets with previously received salt
-        // values should be ignored to prevent replay attacks
-        //
-        // Steps:
-        //
-        // 1. Save successful key as K, which is usable for decrypting Passkey
-        //    and Personalized name writes received on this link.
-        // 2. Start a timer to discard K after 10 seconds if pairing has not
-        //    been started
-        // 3. Discard K if this LE link disconnects.
-      }
-      else if (gfps_handle_table[IDX_CHAR_CFG_PASSKEY] == param->write.handle){
-        logger.info("write to IDX_CHAR_CFG_PASSKEY");
-      }
-      else if (gfps_handle_table[IDX_CHAR_VAL_PASSKEY] == param->write.handle){
-        logger.info("write to IDX_CHAR_VAL_PASSKEY");
-      }
-      else if (gfps_handle_table[IDX_CHAR_VAL_ACCOUNT_KEY] == param->write.handle){
-        logger.info("write to IDX_CHAR_VAL_ACCOUNT_KEY");
       }
       /* send response when param->write.need_rsp is true*/
       if (param->write.need_rsp){
@@ -762,12 +734,12 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
   }
     break;
   case ESP_GATTS_DISCONNECT_EVT:
-    logger.info("ESP_GATTS_DISCONNECT_EVT, reason = 0x{:x}", (int)param->disconnect.reason);
+    logger.info("ESP_GATTS_DISCONNECT_EVT, reason = {:#x}", (int)param->disconnect.reason);
     esp_ble_gap_start_advertising(&adv_params);
     break;
   case ESP_GATTS_CREAT_ATTR_TAB_EVT:{
     if (param->add_attr_tab.status != ESP_GATT_OK){
-      logger.error("create attribute table failed, error code=0x{:x}", (int)param->add_attr_tab.status);
+      logger.error("create attribute table failed, error code={:#x}", (int)param->add_attr_tab.status);
     }
     else if (param->add_attr_tab.num_handle != GFPS_IDX_NB){
       logger.error("create attribute table abnormally, num_handle ({}) \
@@ -836,7 +808,7 @@ uint64_t nearby_platform_GetBleAddress() {
       radio_mac_addr |= (uint64_t)point[5-i] << (i * 8);
     }
   }
-  logger.debug("radio mac address: 0x{:x}", radio_mac_addr);
+  logger.debug("radio mac address: {:#x}", radio_mac_addr);
   return radio_mac_addr;
 }
 
@@ -845,7 +817,7 @@ uint64_t nearby_platform_GetBleAddress() {
 //
 // address - BLE address to set.
 uint64_t nearby_platform_SetBleAddress(uint64_t address) {
-  logger.warn("SetBleAddress not implemented, trying to set to 0x{:x}", address);
+  logger.warn("SetBleAddress not implemented, trying to set to {:#x}", address);
   // TODO: implement, possibly with esp_base_mac_addr_set()
   return 0;
 }
@@ -882,37 +854,44 @@ int32_t nearby_platform_GetMessageStreamPsm() {
 nearby_platform_status nearby_platform_GattNotify(
     uint64_t peer_address, nearby_fp_Characteristic characteristic,
     const uint8_t* message, size_t length) {
-  logger.debug("GattNotify: peer_address={:x}, characteristic={}, length={}",
+  logger.debug("GattNotify: peer_address={:#x}, characteristic={}, length={}",
                peer_address, (int)characteristic, length);
-  std::vector <uint8_t> data(message, message + length);
-  logger.debug("GattNotify: data={::x}", data);
   // look up the attribute handle for the characteristic from the gfp_handle_table
   uint16_t attr_handle = 0;
   switch (characteristic) {
     case kModelId:
-      attr_handle = gfps_handle_table[IDX_CHAR_MODEL_ID];
+      logger.debug("Notifying characteristic: kModelId");
+      attr_handle = gfps_handle_table[IDX_CHAR_VAL_MODEL_ID];
       break;
     case kKeyBasedPairing:
-      attr_handle = gfps_handle_table[IDX_CHAR_KB_PAIRING];
+      logger.debug("Notifying characteristic: kKeyBasedPairing");
+      attr_handle = gfps_handle_table[IDX_CHAR_VAL_KB_PAIRING];
       break;
     case kPasskey:
-      attr_handle = gfps_handle_table[IDX_CHAR_PASSKEY];
+      logger.debug("Notifying characteristic: kPasskey");
+      attr_handle = gfps_handle_table[IDX_CHAR_VAL_PASSKEY];
       break;
     case kAccountKey:
-      attr_handle = gfps_handle_table[IDX_CHAR_ACCOUNT_KEY];
+      logger.debug("Notifying characteristic: kAccountKey");
+      attr_handle = gfps_handle_table[IDX_CHAR_VAL_ACCOUNT_KEY];
       break;
     case kFirmwareRevision:
-      attr_handle = gfps_handle_table[IDX_CHAR_FW_REVISION];
+      logger.debug("Notifying characteristic: kFirmwareRevision");
+      attr_handle = gfps_handle_table[IDX_CHAR_VAL_FW_REVISION];
       break;
       // TODO: add support for kAdditionalData
       // TODO: add support for kMessageStreamPsm
     default:
-      logger.debug("[{}] Unknown/unsupported characteristic: {}", __func__, (int)characteristic);
+      logger.error("[{}] Unknown/unsupported characteristic: {}", __func__, (int)characteristic);
       return kNearbyStatusError;
   }
   // now actually send the notification
-  esp_err_t err = esp_ble_gatts_send_indicate(gfps_profile_tab[PROFILE_APP_IDX].gatts_if,
-                                              gfps_profile_tab[PROFILE_APP_IDX].conn_id,
+  uint16_t gatts_if = gfps_profile_tab[PROFILE_APP_IDX].gatts_if;
+  uint16_t conn_id = gfps_profile_tab[PROFILE_APP_IDX].conn_id;
+  logger.debug("Sending notification: gatts_if={}, conn_id={}, attr_handle={}, length={}",
+               gatts_if, conn_id, attr_handle, length);
+  esp_err_t err = esp_ble_gatts_send_indicate(gatts_if,
+                                              conn_id,
                                               attr_handle,
                                               length,
                                               (uint8_t*)message,
@@ -935,28 +914,28 @@ nearby_platform_status nearby_platform_SetAdvertisement(
     nearby_fp_AvertisementInterval interval) {
   static bool is_advertising = false;
   if (is_advertising) {
-    logger.info("Already advertising");
+    logger.warn("Already advertising");
     return kNearbyStatusError;
   }
   if (length > 31) {
-    logger.info("Advertisement payload too long");
+    logger.error("Advertisement payload too long");
     return kNearbyStatusError;
   }
   if (length == 0) {
-    logger.info("Advertisement payload empty");
+    logger.error("Advertisement payload empty");
     return kNearbyStatusError;
   }
   logger.info("Setting advertisement");
   raw_adv_data.assign(payload, payload + length);
-  logger.info("Payload: {::#x}", raw_adv_data);
+  logger.debug("Payload: {::#x}", raw_adv_data);
   esp_err_t adv_ret = esp_ble_gap_config_adv_data_raw(raw_adv_data.data(), raw_adv_data.size());
   esp_err_t scan_ret = esp_ble_gap_config_scan_rsp_data_raw(raw_scan_rsp_data, sizeof(raw_scan_rsp_data));
   if (adv_ret){
-    logger.error("config adv data failed, error code = {:x} ", (int)adv_ret);
+    logger.error("config adv data failed, error code = {:#x} ", (int)adv_ret);
     return kNearbyStatusError;
   }
   if (scan_ret){
-    logger.error("config scan response data failed, error code = {:x}", (int)scan_ret);
+    logger.error("config scan response data failed, error code = {:#x}", (int)scan_ret);
     return kNearbyStatusError;
   }
   // TODO: set the advertising interval
