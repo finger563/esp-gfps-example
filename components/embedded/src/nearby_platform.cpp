@@ -1,6 +1,18 @@
 #include "embedded.hpp"
 
+static espp::Logger logger({.tag = "GFPS OS", .level = espp::Logger::Verbosity::DEBUG});
+
 static std::chrono::system_clock::time_point s_start_time;
+
+std::vector<espp::Timer*> s_timers_to_delete;
+
+void nearby_platform_Cleanup() {
+  logger.debug("cleaning up {} timers", s_timers_to_delete.size());
+  for (auto t : s_timers_to_delete) {
+    delete t;
+  }
+  s_timers_to_delete.clear();
+}
 
 /////////////////PLATFORM///////////////////////
 
@@ -16,13 +28,14 @@ unsigned int nearby_platform_GetCurrentTimeMs() {
 // callback - Function to call when timer matures.
 // delay_ms - Number of milliseconds to run the timer.
 void* nearby_platform_StartTimer(void (*callback)(), unsigned int delay_ms) {
+  logger.debug("starting timer with delay {} ms", delay_ms);
   espp::Timer* timer = new espp::Timer(espp::Timer::Config{
       .name = "nearby timer",
       .period = std::chrono::milliseconds(0), // one-shot
       .delay = std::chrono::milliseconds(delay_ms),
       .callback = [callback]() {
         if (callback) callback();
-        return true;
+        return true; // stop the timer
       },
     });
   return timer;
@@ -32,11 +45,17 @@ void* nearby_platform_StartTimer(void (*callback)(), unsigned int delay_ms) {
 //
 // timer - Timer handle returned by StartTimer.
 nearby_platform_status nearby_platform_CancelTimer(void* timer) {
+  // clean up any timers that should be deleted
+  nearby_platform_Cleanup();
+
+  // add this timer to the list of timers to delete
   espp::Timer* t = (espp::Timer*)timer;
   if (!t) return kNearbyStatusError;
-  fmt::print("Cancelling timer\n");
-  t->cancel();
-  delete t;
+  logger.debug("canceling timer");
+  // NOTE: this function is actually called from within the timer's callback, so
+  //       we can't cancel/delete it here. Instead, we'll add it to a list of
+  //       timers to cancel/delete later.
+  s_timers_to_delete.push_back(t);
   return kNearbyStatusOK;
 }
 
