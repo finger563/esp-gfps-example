@@ -6,26 +6,28 @@
 
 #include "embedded.hpp"
 
+static espp::Logger logger({.tag="main", .level=espp::Logger::Verbosity::DEBUG});
+
 using namespace std::chrono_literals;
 
 void on_fp_event(nearby_event_Event* event) {
   switch (event->event_type) {
   case kNearbyEventMessageStreamConnected: {
-    fmt::print("on_fp_event: kNearbyEventMessageStreamConnected\n");
+    logger.info("on_fp_event: kNearbyEventMessageStreamConnected");
     // cast event->payload to nearby_event_MessageStreamConnected which has a uint64_t peer_address
     nearby_event_MessageStreamConnected* connected = (nearby_event_MessageStreamConnected*)event->payload;
-    fmt::print("peer_address: 0x{:x}\n", connected->peer_address);
+    logger.info("peer_address: 0x{:x}", connected->peer_address);
   }
     break;
   case kNearbyEventMessageStreamDisconnected: {
-    fmt::print("on_fp_event: kNearbyEventMessageStreamDisconnected\n");
+    logger.info("on_fp_event: kNearbyEventMessageStreamDisconnected");
     // cast to nearby_event_MessageStreamDisconnected which has a uint64_t peer_address
     nearby_event_MessageStreamDisconnected* disconnected = (nearby_event_MessageStreamDisconnected*)event->payload;
-    fmt::print("peer_address: 0x{:x}\n", disconnected->peer_address);
+    logger.info("peer_address: 0x{:x}", disconnected->peer_address);
   }
     break;
   case kNearbyEventMessageStreamReceived: {
-    fmt::print("on_fp_event: kNearbyEventMessageStreamReceived\n");
+    logger.info("on_fp_event: kNearbyEventMessageStreamReceived");
     // cast to nearby_event_MessageStreamReceived which has:
     //  - uint64_t peer_address
     //  - uint8_t message_group
@@ -33,12 +35,12 @@ void on_fp_event(nearby_event_Event* event) {
     //  - size_t length
     //  - uint8_t* data
     nearby_event_MessageStreamReceived* received = (nearby_event_MessageStreamReceived*)event->payload;
-    fmt::print("peer_address: 0x{:x}\n", received->peer_address);
-    fmt::print("message_group: {}\n", received->message_group);
-    fmt::print("message_code: {}\n", received->message_code);
-    fmt::print("length: {}\n", received->length);
+    logger.debug("peer_address: 0x{:x}", received->peer_address);
+    logger.debug("message_group: {}", received->message_group);
+    logger.debug("message_code: {}", received->message_code);
+    logger.debug("length: {}", received->length);
     std::vector<uint8_t> data(received->data, received->data + received->length);
-    fmt::print("data: {::#x}\n", data);
+    logger.debug("data: {::#x}", data);
   }
     break;
   default:
@@ -50,9 +52,6 @@ void on_fp_event(nearby_event_Event* event) {
  * @breif Main application entry point
  */
 extern "C" void app_main(void) {
-  // Initialize logging
-  espp::Logger logger({.tag="main", .level=espp::Logger::Verbosity::DEBUG});
-
   logger.info("Bootup");
 
   // Initialize NVS.
@@ -68,15 +67,28 @@ extern "C" void app_main(void) {
 
   #if CONFIG_BT_CLASSIC_ENABLED
   esp_bt_mode_t mode = ESP_BT_MODE_BTDM;
+  logger.info("BT mode");
   #else
   esp_bt_mode_t mode = ESP_BT_MODE_BLE;
+  logger.info("BLE mode");
   #endif
 
   // Initialize the bluetooth subsystem
   esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
   bt_cfg.mode = mode;
-  bt_cfg.bt_max_acl_conn = 3;
-  bt_cfg.bt_max_sync_conn = 3;
+#if CONFIG_BT_CLASSIC_ENABLED
+  if (mode & ESP_BT_MODE_CLASSIC_BT) {
+    bt_cfg.bt_max_acl_conn = 3;
+    bt_cfg.bt_max_sync_conn = 3;
+  } else
+#endif
+    {
+      ret = esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT);
+      if (ret) {
+        logger.error("esp_bt_controller_mem_release failed: {}", ret);
+        return;
+      }
+    }
 
   ret = esp_bt_controller_init(&bt_cfg);
   if (ret) {
