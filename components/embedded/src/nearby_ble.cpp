@@ -72,6 +72,12 @@ static uint8_t raw_scan_rsp_data[] = {
   /* service uuid */
   0x03, 0x03, 0x2C, 0xFE,
 };
+// config scan response data
+static esp_ble_adv_data_t scan_rsp_config = {
+  .set_scan_rsp = true,
+  .include_name = true,
+  .appearance = 0x00, // TODO: fix
+};
 
 static std::vector<uint8_t> raw_adv_data;
 
@@ -248,40 +254,77 @@ static const esp_gatts_attr_db_t gatt_db[GFPS_IDX_NB] =
 
   };
 
-static const char *ble_gap_evt_names[] = {"ADV_DATA_SET_COMPLETE",
-                                          "SCAN_RSP_DATA_SET_COMPLETE",
-                                          "SCAN_PARAM_SET_COMPLETE",
-                                          "SCAN_RESULT",
-                                          "ADV_DATA_RAW_SET_COMPLETE",
-                                          "SCAN_RSP_DATA_RAW_SET_COMPLETE",
-                                          "ADV_START_COMPLETE",
-                                          "SCAN_START_COMPLETE",
-                                          "AUTH_CMPL",
-                                          "KEY",
-                                          "SEC_REQ",
-                                          "PASSKEY_NOTIF",
-                                          "PASSKEY_REQ",
-                                          "OOB_REQ",
-                                          "LOCAL_IR",
-                                          "LOCAL_ER",
-                                          "NC_REQ",
-                                          "ADV_STOP_COMPLETE",
-                                          "SCAN_STOP_COMPLETE",
-                                          "SET_STATIC_RAND_ADDR",
-                                          "UPDATE_CONN_PARAMS",
-                                          "SET_PKT_LENGTH_COMPLETE",
-                                          "SET_LOCAL_PRIVACY_COMPLETE",
-                                          "REMOVE_BOND_DEV_COMPLETE",
-                                          "CLEAR_BOND_DEV_COMPLETE",
-                                          "GET_BOND_DEV_COMPLETE",
-                                          "READ_RSSI_COMPLETE",
-                                          "UPDATE_WHITELIST_COMPLETE"};
+static const char *ble_gap_evt_names[] = {
+  "ADV_DATA_SET_COMPLETE",
+  "SCAN_RSP_DATA_SET_COMPLETE",
+  "SCAN_PARAM_SET_COMPLETE",
+  "SCAN_RESULT",
+  "ADV_DATA_RAW_SET_COMPLETE",
+  "SCAN_RSP_DATA_RAW_SET_COMPLETE",
+  "ADV_START_COMPLETE",
+  "SCAN_START_COMPLETE",
+  "AUTH_CMPL",
+  "KEY",
+  "SEC_REQ",
+  "PASSKEY_NOTIF",
+  "PASSKEY_REQ",
+  "OOB_REQ",
+  "LOCAL_IR",
+  "LOCAL_ER",
+  "NC_REQ",
+  "ADV_STOP_COMPLETE",
+  "SCAN_STOP_COMPLETE",
+  "SET_STATIC_RAND_ADDR",
+  "UPDATE_CONN_PARAMS",
+  "SET_PKT_LENGTH_COMPLETE",
+  "SET_LOCAL_PRIVACY_COMPLETE",
+  "REMOVE_BOND_DEV_COMPLETE",
+  "CLEAR_BOND_DEV_COMPLETE",
+  "GET_BOND_DEV_COMPLETE",
+  "READ_RSSI_COMPLETE",
+  "UPDATE_WHITELIST_COMPLETE"
+};
+
+static const char *ble_gatts_evt_names[] = {
+  "ESP_GATTS_REG_EVT",
+  "ESP_GATTS_READ_EVT",
+  "ESP_GATTS_WRITE_EVT",
+  "ESP_GATTS_EXEC_WRITE_EVT",
+  "ESP_GATTS_MTU_EVT",
+  "ESP_GATTS_CONF_EVT",
+  "ESP_GATTS_UNREG_EVT",
+  "ESP_GATTS_CREATE_EVT",
+  "ESP_GATTS_ADD_INCL_SRVC_EVT",
+  "ESP_GATTS_ADD_CHAR_EVT",
+  "ESP_GATTS_ADD_CHAR_DESCR_EVT",
+  "ESP_GATTS_DELETE_EVT",
+  "ESP_GATTS_START_EVT",
+  "ESP_GATTS_STOP_EVT",
+  "ESP_GATTS_CONNECT_EVT",
+  "ESP_GATTS_DISCONNECT_EVT",
+  "ESP_GATTS_OPEN_EVT",
+  "ESP_GATTS_CANCEL_OPEN_EVT",
+  "ESP_GATTS_CLOSE_EVT",
+  "ESP_GATTS_LISTEN_EVT",
+  "ESP_GATTS_CONGEST_EVT",
+  "ESP_GATTS_RESPONSE_EVT",
+  "ESP_GATTS_CREAT_ATTR_TAB_EVT",
+  "ESP_GATTS_SET_ATTR_VAL_EVT",
+  "ESP_GATTS_SEND_SERVICE_CHANGE_EVT"
+};
 
 const char *ble_gap_evt_str(uint8_t event) {
     if (event >= SIZEOF_ARRAY(ble_gap_evt_names)) {
         return "UNKNOWN";
     }
     return ble_gap_evt_names[event];
+}
+
+const char *ble_gatts_evt_str(uint8_t event) {
+    if (event >= SIZEOF_ARRAY(ble_gatts_evt_names)) {
+        return "UNKNOWN";
+    }
+    return ble_gatts_evt_names[event];
 }
 
 const char *esp_ble_key_type_str(esp_ble_key_type_t key_type) {
@@ -353,7 +396,13 @@ static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param
   case ESP_GAP_BLE_SCAN_RSP_DATA_RAW_SET_COMPLETE_EVT:
     adv_config_done &= (~SCAN_RSP_CONFIG_FLAG);
     if (adv_config_done == 0){
-      esp_ble_gap_start_advertising(&adv_params);
+      // esp_ble_gap_start_advertising(&adv_params);
+    }
+    break;
+  case ESP_GAP_BLE_SCAN_RSP_DATA_SET_COMPLETE_EVT:
+    adv_config_done &= (~SCAN_RSP_CONFIG_FLAG);
+    if (adv_config_done == 0){
+      // esp_ble_gap_start_advertising(&adv_params);
     }
     break;
   case ESP_GAP_BLE_ADV_START_COMPLETE_EVT:
@@ -478,7 +527,7 @@ static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param
     break;
 
   case ESP_GAP_BLE_UPDATE_CONN_PARAMS_EVT:
-    logger.info("update connection params status = {}, min_int = {}, max_int = {},conn_int = {},latency = {}, timeout = {}",
+    logger.debug("update connection params status = {}, min_int = {}, max_int = {},conn_int = {},latency = {}, timeout = {}",
                 (int)param->update_conn_params.status,
                 (int)param->update_conn_params.min_int,
                 (int)param->update_conn_params.max_int,
@@ -491,7 +540,7 @@ static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param
   }
 }
 
-void example_prepare_write_event_env(esp_gatt_if_t gatts_if, prepare_type_env_t *prepare_write_env, esp_ble_gatts_cb_param_t *param)
+void prepare_write_event_env(esp_gatt_if_t gatts_if, prepare_type_env_t *prepare_write_env, esp_ble_gatts_cb_param_t *param)
 {
   logger.info("prepare write, handle = {}, value len = {}", param->write.handle, param->write.len);
   esp_gatt_status_t status = ESP_GATT_OK;
@@ -537,7 +586,7 @@ void example_prepare_write_event_env(esp_gatt_if_t gatts_if, prepare_type_env_t 
 
 }
 
-void example_exec_write_event_env(prepare_type_env_t *prepare_write_env, esp_ble_gatts_cb_param_t *param){
+void exec_write_event_env(prepare_type_env_t *prepare_write_env, esp_ble_gatts_cb_param_t *param){
   if (param->exec_write.exec_write_flag == ESP_GATT_PREP_WRITE_EXEC && prepare_write_env->prepare_buf){
     std::vector<uint8_t> data(prepare_write_env->prepare_buf, prepare_write_env->prepare_buf + prepare_write_env->prepare_len);
     logger.debug("ESP_GATT_PREP_WRITE_EXEC: data = {::#x}", data);
@@ -554,7 +603,9 @@ void example_exec_write_event_env(prepare_type_env_t *prepare_write_env, esp_ble
 static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if, esp_ble_gatts_cb_param_t *param)
 {
   uint64_t peer_address = 0;
-  logger.debug("gatts_profile_event_handler: event = {}, gatts_if = {}", (int)event, (int)gatts_if);
+  logger.debug("gatts_profile_event_handler: event = {}, gatts_if = {}",
+               ble_gatts_evt_str(event),
+               (int)gatts_if);
   switch (event) {
   case ESP_GATTS_REG_EVT:{
     logger.info("ESP_GATTS_REG_EVT");
@@ -563,7 +614,8 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
       logger.error("set device name failed, error code = {:#x}", set_dev_name_ret);
     }
     esp_err_t adv_ret = esp_ble_gap_config_adv_data_raw(raw_adv_data.data(), raw_adv_data.size());
-    esp_err_t scan_ret = esp_ble_gap_config_scan_rsp_data_raw(raw_scan_rsp_data, sizeof(raw_scan_rsp_data));
+    esp_err_t scan_ret = esp_ble_gap_config_adv_data(&scan_rsp_config);
+    // esp_err_t scan_ret = esp_ble_gap_config_scan_rsp_data_raw(raw_scan_rsp_data, sizeof(raw_scan_rsp_data));
     esp_err_t create_attr_ret = esp_ble_gatts_create_attr_tab(gatt_db, gatts_if, GFPS_IDX_NB, SVC_INST_ID);
     if (adv_ret){
       logger.error("config adv data failed, error code = {:#x}", adv_ret);
@@ -700,13 +752,19 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
     }else{
       /* handle prepare write */
       logger.info("ESP_GATTS_PREP_WRITE_EVT");
-      example_prepare_write_event_env(gatts_if, &prepare_write_env, param);
+      prepare_write_event_env(gatts_if, &prepare_write_env, param);
     }
     break;
   case ESP_GATTS_EXEC_WRITE_EVT:
     // the length of gattc prepare write data must be less than GATTS_DEMO_CHAR_VAL_LEN_MAX.
     logger.info("ESP_GATTS_EXEC_WRITE_EVT");
-    example_exec_write_event_env(&prepare_write_env, param);
+    exec_write_event_env(&prepare_write_env, param);
+    break;
+  case ESP_GATTS_SET_ATTR_VAL_EVT:
+    logger.info("ESP_GATTS_SET_ATTR_VAL_EVT, attr_handle {}, srvc_handle {}, status {}",
+                (int)param->set_attr_val.attr_handle,
+                (int)param->set_attr_val.srvc_handle,
+                (int)param->set_attr_val.status);
     break;
   case ESP_GATTS_MTU_EVT:
     logger.info("ESP_GATTS_MTU_EVT, MTU {}", (int)param->mtu.mtu);
@@ -761,6 +819,7 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
   case ESP_GATTS_UNREG_EVT:
   case ESP_GATTS_DELETE_EVT:
   default:
+    logger.debug("gatts_event_handler: unhandled event {}", (int)event);
     break;
   }
 }
@@ -895,7 +954,9 @@ nearby_platform_status nearby_platform_GattNotify(
                                               attr_handle,
                                               length,
                                               (uint8_t*)message,
-                                              false); // false = notification, true = indication
+                                              true); // false = notification, true = indication
+  // auto err = esp_ble_gatts_set_attr_value(attr_handle, length, (uint8_t*)message);
+  // auto err = esp_ble_gatts_send_response(gatts_if, param->write.conn_id, param->write.trans_id, ESP_GATT_OK, NULL);
   if (err != ESP_OK) {
     logger.error("esp_ble_gatts_send_indicate failed: {}", err);
     return kNearbyStatusError;
