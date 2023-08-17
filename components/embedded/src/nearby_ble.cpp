@@ -38,6 +38,8 @@ static uint8_t ENCRYPTED_PASSKEY_BLOCK[16] = {0};
 void encrypt_passkey();
 void nearby_platform_NotifyPasskey();
 
+static std::vector<uint8_t> raw_adv_data;
+
 /* Service */
 // NOTE: these UUIDs are specified at 16-bit, which means that 1) they are not
 // in reverse order, and 2) the rest of their full 128-bit UUIDs are the standard
@@ -926,21 +928,9 @@ nearby_platform_status nearby_platform_GattNotify(
 nearby_platform_status nearby_platform_SetAdvertisement(
     const uint8_t* payload, size_t length,
     nearby_fp_AvertisementInterval interval) {
-  static bool is_advertising = false;
-  if (length > 31) {
-    logger.error("Advertisement payload too long");
-    return kNearbyStatusError;
-  }
-  if (length == 0) {
-    logger.error("Advertisement payload empty");
-    return kNearbyStatusError;
-  }
   logger.info("Setting advertisement, interval code: {}", (int)interval);
-
-  // NOTE: we don't use the payload provided, since it's really just setting the
-  // service data in the advertisement, and we've already set that in our
-  // adv_config. The service data is the 2 bytes of the UUID, followed by the
-  // 3 bytes of the model ID
+  // set the advertisement data
+  raw_adv_data.assign(payload, payload + length);
 
   // For information of the contents of the payload, see:
   // https://btprodspecificationrefs.blob.core.windows.net/assigned-numbers/Assigned%20Number%20Types/Assigned_Numbers.pdf
@@ -963,7 +953,8 @@ nearby_platform_status nearby_platform_SetAdvertisement(
   adv_params.adv_int_min = new_interval;
   adv_params.adv_int_max = new_interval;
 
-  esp_ble_gap_config_adv_data(&adv_config);
+  esp_ble_gap_config_adv_data_raw(raw_adv_data.data(), raw_adv_data.size());
+  // esp_ble_gap_config_adv_data(&adv_config); // NOTE: for some reason this isn't working...
   esp_ble_gap_config_adv_data(&scan_rsp_config);
   adv_config_done |= ADV_CONFIG_FLAG;
   adv_config_done |= SCAN_RSP_CONFIG_FLAG;
