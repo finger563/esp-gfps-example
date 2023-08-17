@@ -1097,11 +1097,13 @@ uint32_t nearby_platfrom_GetPairingPassKey() {
 // passkey - Passkey
 void nearby_platform_SetRemotePasskey(uint32_t passkey) {
   logger.info("SetRemotePasskey: {}", passkey);
-  // PASSKEY = passkey;
-  esp_ble_passkey_reply(remote_bd_addr.data(), true, passkey);
-  // esp_ble_gap_security_rsp(remote_bd_addr.data(), true);
-  // esp_gap_ble_set_authorization(remote_bd_addr.data(), true);
-  esp_ble_confirm_reply(remote_bd_addr.data(), true);
+  bool accept = passkey == PASSKEY;
+  if (accept) {
+    logger.info("Accepting pairing request, passkey matches");
+  } else {
+    logger.error("Declining pairing request, passkey does not match");
+  }
+  esp_ble_confirm_reply(remote_bd_addr.data(), accept);
 }
 
 // Sends a pairing request to the Seeker
