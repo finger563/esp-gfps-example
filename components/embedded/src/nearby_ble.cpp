@@ -31,11 +31,13 @@ enum
 #define ESP_APP_ID                  0x55
 #define SVC_INST_ID                 0
 
-static const uint32_t MODEL_ID        = CONFIG_MODEL_ID;
-static const uint32_t PASSKEY = 123456;
+static const uint32_t MODEL_ID = CONFIG_MODEL_ID;
+static uint32_t PASSKEY  = 123456;
+
 static uint8_t REMOTE_PUBLIC_KEY[64] = {0};
 static uint8_t ENCRYPTED_PASSKEY_BLOCK[16] = {0};
-void encrypt_passkey();
+
+void encrypt_passkey(int new_passkey);
 void nearby_platform_NotifyPasskey();
 
 static std::vector<uint8_t> raw_adv_data;
@@ -501,14 +503,16 @@ static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param
                 esp_ble_key_type_str(param->ble_security.ble_key.key_type));
     break;
 
-  case ESP_GAP_BLE_PASSKEY_NOTIF_EVT: // ESP_IO_CAP_OUT
+  case ESP_GAP_BLE_PASSKEY_NOTIF_EVT: { // ESP_IO_CAP_OUT
+    int received_passkey = (int)param->ble_security.key_notif.passkey;
     // The app will receive this evt when the IO has Output capability and the peer device IO
     // has Input capability. Show the passkey number to the user to input it in the peer device.
-    logger.info("BLE GAP PASSKEY_NOTIF passkey: {}", (int)param->ble_security.key_notif.passkey);
+    logger.info("BLE GAP PASSKEY_NOTIF passkey: {}", received_passkey);
 
     // send the passkey back to the peer device using the GFPS PASSKEY characteristic
-    encrypt_passkey();
+    encrypt_passkey(received_passkey);
     nearby_platform_NotifyPasskey();
+  }
     break;
 
   case ESP_GAP_BLE_NC_REQ_EVT: // ESP_IO_CAP_IO
@@ -523,7 +527,7 @@ static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param
     // The app will receive this evt when the IO has Input capability and the peer device IO has
     // Output capability. See the passkey number on the peer device and send it back.
     logger.info("BLE GAP PASSKEY_REQ");
-    esp_ble_passkey_reply(param->ble_security.key_notif.bd_addr, true, 123456);
+    esp_ble_passkey_reply(param->ble_security.key_notif.bd_addr, true, PASSKEY);
     break;
 
   case ESP_GAP_BLE_OOB_REQ_EVT:
@@ -962,7 +966,7 @@ nearby_platform_status nearby_platform_SetAdvertisement(
   return kNearbyStatusOK;
 }
 
-void encrypt_passkey() {
+void encrypt_passkey(int new_passkey) {
   // get the AesKey (shared secrete made from the remote device's public key and our private key)
   uint8_t aes_key[16];
   auto status = nearby_fp_CreateSharedSecret(REMOTE_PUBLIC_KEY, aes_key);
@@ -971,15 +975,23 @@ void encrypt_passkey() {
     return;
   }
 
+  PASSKEY = new_passkey;
+
   // BT negotatiates passkey 123456 (0x01E240)
   uint8_t SEEKERS_PASSKEY = 0x02;
   uint8_t PROVIDERS_PASSKEY = 0x03;
   uint8_t raw_passkey_block[16] = {
+    // first byte is the message type
+    // SEEKERS_PASSKEY,
     PROVIDERS_PASSKEY,
-    // the passkey is 123456 (0x01E240)
-    // 0x01, 0xE2, 0x40,
-    0x40, 0xE2, 0x01,
+
+    // The next 3 bytes are the passkey (in little endian)
+    (uint8_t)(PASSKEY & 0xFF),
+    (uint8_t)((PASSKEY >> 8) & 0xFF),
+    (uint8_t)((PASSKEY >> 16) & 0xFF),
+
     // the remaining bytes are salt (random)
+    (uint8_t)(esp_random() & 0xFF),
     (uint8_t)(esp_random() & 0xFF),
     (uint8_t)(esp_random() & 0xFF),
     (uint8_t)(esp_random() & 0xFF),
@@ -1010,25 +1022,15 @@ nearby_platform_status nearby_platform_BleInit(
 
   logger.info("Initializing BLE");
 
-  logger.info("Encrypting passkey");
-  encrypt_passkey();
-
   // save the ble_interface (on_gatt_write and on_gatt_read callbacks) for later
   g_ble_interface = ble_interface;
 
   // Set the type of authentication needed
-  // esp_ble_auth_req_t auth_req = ESP_LE_AUTH_NO_BOND;
-  // esp_ble_auth_req_t auth_req = ESP_LE_AUTH_BOND;
-  // esp_ble_auth_req_t auth_req = ESP_LE_AUTH_REQ_MITM;
-  esp_ble_auth_req_t auth_req = ESP_LE_AUTH_REQ_BOND_MITM;
-  // esp_ble_auth_req_t auth_req = ESP_LE_AUTH_REQ_SC_ONLY;
-  // esp_ble_auth_req_t auth_req = ESP_LE_AUTH_REQ_SC_BOND;
-  // esp_ble_auth_req_t auth_req = ESP_LE_AUTH_REQ_SC_MITM;
-  // esp_ble_auth_req_t auth_req = ESP_LE_AUTH_REQ_SC_MITM_BOND;
+  esp_ble_auth_req_t auth_req = ESP_LE_AUTH_REQ_SC_MITM_BOND;
 
   // set the IO capability of the device
-  // esp_ble_io_cap_t iocap = ESP_IO_CAP_IO; // display yes no
-  esp_ble_io_cap_t iocap = ESP_IO_CAP_OUT; // display yes no
+  esp_ble_io_cap_t iocap = ESP_IO_CAP_IO; // display yes no
+  // esp_ble_io_cap_t iocap = ESP_IO_CAP_OUT; // display yes no
   // esp_ble_io_cap_t iocap = ESP_IO_CAP_IN; // keyboard only
   // esp_ble_io_cap_t iocap = ESP_IO_CAP_NONE; // device is not capable of input or output, unsecure
   // esp_ble_io_cap_t iocap = ESP_IO_CAP_KBDISP; // keyboard display
@@ -1039,15 +1041,16 @@ nearby_platform_status nearby_platform_BleInit(
 
   // set the key configuration
   uint8_t spec_auth = ESP_BLE_ONLY_ACCEPT_SPECIFIED_AUTH_ENABLE;
+  esp_ble_gap_set_security_param(ESP_BLE_SM_SET_STATIC_PASSKEY, (void*)&PASSKEY, sizeof(uint32_t));
+  esp_ble_gap_set_security_param(ESP_BLE_SM_IOCAP_MODE, &iocap, 1);
+  esp_ble_gap_set_security_param(ESP_BLE_SM_AUTHEN_REQ_MODE, &auth_req, 1);
+  esp_ble_gap_set_security_param(ESP_BLE_SM_OOB_SUPPORT, &oob_support, sizeof(uint8_t));
+  esp_ble_gap_set_security_param(ESP_BLE_SM_ONLY_ACCEPT_SPECIFIED_SEC_AUTH, &spec_auth, sizeof(uint8_t));
+
   uint8_t init_key = ESP_BLE_ENC_KEY_MASK | ESP_BLE_ID_KEY_MASK;
   uint8_t rsp_key = ESP_BLE_ENC_KEY_MASK | ESP_BLE_ID_KEY_MASK;
   uint8_t key_size = 16; //the key size should be 7~16 bytes
 
-  esp_ble_gap_set_security_param(ESP_BLE_SM_SET_STATIC_PASSKEY, (void*)&PASSKEY, sizeof(uint32_t));
-  esp_ble_gap_set_security_param(ESP_BLE_SM_AUTHEN_REQ_MODE, &auth_req, 1);
-  esp_ble_gap_set_security_param(ESP_BLE_SM_IOCAP_MODE, &iocap, 1);
-  esp_ble_gap_set_security_param(ESP_BLE_SM_OOB_SUPPORT, &oob_support, sizeof(uint8_t));
-  esp_ble_gap_set_security_param(ESP_BLE_SM_ONLY_ACCEPT_SPECIFIED_SEC_AUTH, &spec_auth, sizeof(uint8_t));
   esp_ble_gap_set_security_param(ESP_BLE_SM_SET_INIT_KEY, &init_key, 1);
   esp_ble_gap_set_security_param(ESP_BLE_SM_SET_RSP_KEY, &rsp_key, 1);
   esp_ble_gap_set_security_param(ESP_BLE_SM_MAX_KEY_SIZE, &key_size, 1);
