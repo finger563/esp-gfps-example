@@ -1,0 +1,20 @@
+menu "Configuration"
+
+    config DEVICE_NAME
+        string "BLE Device Name"
+        default "GFPS Example"
+        help
+            Set the BLE device name used in advertisement of the BLE device.
+
+    config MODEL_ID
+        hex "Model ID"
+        default 0x11223344
+        help
+            Set the model id (24 bit)
+
+    config ANTISPOOFING_PRIVATE_KEY
+        string "Anti-Spoofing Private Key"
+        help
+            Set the anti-spoofing private key, as a base64 uncompressed string.
+
+endmenu

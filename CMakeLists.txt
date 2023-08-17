@@ -12,7 +12,7 @@ set(EXTRA_COMPONENT_DIRS
 
 set(
   COMPONENTS
-  "main esptool_py logger task"
+  "main esptool_py bt driver nvs_flash logger task embedded"
   CACHE STRING
   "List of components to include"
   )
