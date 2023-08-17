@@ -2,6 +2,16 @@
 
 static espp::Logger logger({.tag = "GFPS BR/EDR", .level = espp::Logger::Verbosity::DEBUG});
 
+// Contains pointers to callback functions:
+// - on_pairing_request(uint64_t peer_address)
+// - on_paired(uint64_t peer_address)
+// - on_pairing_failed(uint64_t peer_address)
+// #if NEARBY_FP_MESSAGE_STREAM
+// - on_message_stream_connected(uint64_t peer_address)
+// - on_message_stream_disconnected(uint64_t peer_address)
+// - on_message_stream_received(uint64_t peer_address, const uint8_t* data, size_t size)
+// #endif
+static const nearby_platform_BtInterface *g_bt_interface = nullptr;
 
 #if CONFIG_BT_CLASSIC_ENABLED
 
@@ -190,6 +200,8 @@ nearby_platform_status nearby_platform_SendMessageStream(uint64_t peer_address,
 // bt_interface - BT callbacks event structure.
 nearby_platform_status nearby_platform_BtInit(
     const nearby_platform_BtInterface* bt_interface) {
+
+  g_bt_interface = bt_interface;
 
   #if CONFIG_BT_CLASSIC_ENABLED
   logger.info("Initializing Bluetooth");
