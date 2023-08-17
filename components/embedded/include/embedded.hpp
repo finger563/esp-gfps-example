@@ -11,6 +11,7 @@
 #include "nearby_platform_se.h"
 #include "nearby_platform_trace.h"
 #include "nearby_fp_client.h"
+#include "nearby_fp_library.h"
 
 #include <esp_bt.h>
 #include <esp_gap_bt_api.h>

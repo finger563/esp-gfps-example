@@ -33,6 +33,10 @@ enum
 
 static const uint32_t MODEL_ID        = CONFIG_MODEL_ID;
 static const uint32_t PASSKEY = 123456;
+static uint8_t REMOTE_PUBLIC_KEY[64] = {0};
+static uint8_t ENCRYPTED_PASSKEY_BLOCK[16] = {0};
+void encrypt_passkey();
+void nearby_platform_NotifyPasskey();
 
 /* Service */
 // NOTE: these UUIDs are specified at 16-bit, which means that 1) they are not
@@ -192,13 +196,11 @@ static const esp_gatts_attr_db_t gatt_db[GFPS_IDX_NB] =
     {{ESP_GATT_AUTO_RSP}, {ESP_UUID_LEN_16, (uint8_t *)&character_declaration_uuid, ESP_GATT_PERM_READ,
                            CHAR_DECLARATION_SIZE, CHAR_DECLARATION_SIZE, (uint8_t *)&char_prop_read_write_notify}},
 
-    // TODO: UPDATE
     /* Characteristic Value */
     [IDX_CHAR_VAL_KB_PAIRING]  =
     {{ESP_GATT_AUTO_RSP}, {ESP_UUID_LEN_128, (uint8_t *)GATTS_CHAR_UUID_GFPS_KB_PAIRING, ESP_GATT_PERM_READ | ESP_GATT_PERM_WRITE,
                            GATTS_DEMO_CHAR_VAL_LEN_MAX, sizeof(char_value), (uint8_t *)char_value}},
 
-    // TODO: UPDATE
     /* Client Characteristic Configuration Descriptor */
     [IDX_CHAR_CFG_KB_PAIRING]  =
     {{ESP_GATT_AUTO_RSP}, {ESP_UUID_LEN_16, (uint8_t *)&character_client_config_uuid, ESP_GATT_PERM_READ | ESP_GATT_PERM_WRITE,
@@ -209,13 +211,11 @@ static const esp_gatts_attr_db_t gatt_db[GFPS_IDX_NB] =
     {{ESP_GATT_AUTO_RSP}, {ESP_UUID_LEN_16, (uint8_t *)&character_declaration_uuid, ESP_GATT_PERM_READ,
                            CHAR_DECLARATION_SIZE, CHAR_DECLARATION_SIZE, (uint8_t *)&char_prop_read_write_notify}},
 
-    // TODO: UPDATE
     /* Characteristic Value */
     [IDX_CHAR_VAL_PASSKEY]  =
     {{ESP_GATT_AUTO_RSP}, {ESP_UUID_LEN_128, (uint8_t *)GATTS_CHAR_UUID_GFPS_PASSKEY, ESP_GATT_PERM_READ | ESP_GATT_PERM_WRITE,
-                           GATTS_DEMO_CHAR_VAL_LEN_MAX, sizeof(char_value), (uint8_t *)char_value}},
+                           GATTS_DEMO_CHAR_VAL_LEN_MAX, sizeof(ENCRYPTED_PASSKEY_BLOCK), (uint8_t *)ENCRYPTED_PASSKEY_BLOCK}},
 
-    // TODO: UPDATE
     /* Client Characteristic Configuration Descriptor */
     [IDX_CHAR_CFG_PASSKEY]  =
     {{ESP_GATT_AUTO_RSP}, {ESP_UUID_LEN_16, (uint8_t *)&character_client_config_uuid, ESP_GATT_PERM_READ | ESP_GATT_PERM_WRITE,
@@ -503,6 +503,10 @@ static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param
     // The app will receive this evt when the IO has Output capability and the peer device IO
     // has Input capability. Show the passkey number to the user to input it in the peer device.
     logger.info("BLE GAP PASSKEY_NOTIF passkey: {}", (int)param->ble_security.key_notif.passkey);
+
+    // send the passkey back to the peer device using the GFPS PASSKEY characteristic
+    encrypt_passkey();
+    nearby_platform_NotifyPasskey();
     break;
 
   case ESP_GAP_BLE_NC_REQ_EVT: // ESP_IO_CAP_IO
@@ -517,7 +521,7 @@ static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param
     // The app will receive this evt when the IO has Input capability and the peer device IO has
     // Output capability. See the passkey number on the peer device and send it back.
     logger.info("BLE GAP PASSKEY_REQ");
-    esp_ble_passkey_reply(param->ble_security.key_notif.bd_addr, true, 0x00);
+    esp_ble_passkey_reply(param->ble_security.key_notif.bd_addr, true, 123456);
     break;
 
   case ESP_GAP_BLE_OOB_REQ_EVT:
@@ -664,6 +668,11 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
           nearby_fp_Characteristic characteristic;
           if (param->write.handle == gfps_handle_table[IDX_CHAR_VAL_KB_PAIRING]) {
             logger.debug("write to IDX_CHAR_VAL_KB_PAIRING");
+            if (param->write.len == 80) {
+              // this has the remote's public key as the last 64 bytes, copy them to REMOTE_PUBLIC_KEY
+              memcpy(REMOTE_PUBLIC_KEY, param->write.value + 16, 64);
+              logger.debug("got remote public key");
+            }
             characteristic = kKeyBasedPairing;
           } else if (param->write.handle == gfps_handle_table[IDX_CHAR_VAL_PASSKEY]) {
             logger.debug("write to IDX_CHAR_VAL_PASSKEY");
@@ -893,15 +902,6 @@ nearby_platform_status nearby_platform_GattNotify(
   logger.debug("Sending notification: gatts_if={}, conn_id={}, attr_handle={}, length={}",
                gatts_if, conn_id, attr_handle, length);
 
-  /*
-  // set the value of the attribute
-  auto err = esp_ble_gatts_set_attr_value(attr_handle, length, (uint8_t*)message);
-  if (err != ESP_OK) {
-    logger.error("esp_ble_gatts_set_attr_value failed: {}", err);
-    return kNearbyStatusError;
-  }
-  */
-
   // send the notification
   bool indicate = false; // false = notification, true = indication
   auto err = esp_ble_gatts_send_indicate(gatts_if,
@@ -971,6 +971,46 @@ nearby_platform_status nearby_platform_SetAdvertisement(
   return kNearbyStatusOK;
 }
 
+void encrypt_passkey() {
+  // get the AesKey (shared secrete made from the remote device's public key and our private key)
+  uint8_t aes_key[16];
+  auto status = nearby_fp_CreateSharedSecret(REMOTE_PUBLIC_KEY, aes_key);
+  if (status != kNearbyStatusOK) {
+    logger.error("CreateSharedSecret failed: {}", (int)status);
+    return;
+  }
+
+  // BT negotatiates passkey 123456 (0x01E240)
+  uint8_t SEEKERS_PASSKEY = 0x02;
+  uint8_t PROVIDERS_PASSKEY = 0x03;
+  uint8_t raw_passkey_block[16] = {
+    PROVIDERS_PASSKEY,
+    // the passkey is 123456 (0x01E240)
+    // 0x01, 0xE2, 0x40,
+    0x40, 0xE2, 0x01,
+    // the remaining bytes are salt (random)
+    (uint8_t)(esp_random() & 0xFF),
+    (uint8_t)(esp_random() & 0xFF),
+    (uint8_t)(esp_random() & 0xFF),
+    (uint8_t)(esp_random() & 0xFF),
+    (uint8_t)(esp_random() & 0xFF),
+    (uint8_t)(esp_random() & 0xFF),
+    (uint8_t)(esp_random() & 0xFF),
+    (uint8_t)(esp_random() & 0xFF),
+    (uint8_t)(esp_random() & 0xFF),
+    (uint8_t)(esp_random() & 0xFF),
+    (uint8_t)(esp_random() & 0xFF),
+  };
+  nearby_platform_Aes128Encrypt(raw_passkey_block, ENCRYPTED_PASSKEY_BLOCK, aes_key);
+  std::vector<uint8_t> encrypted_passkey(ENCRYPTED_PASSKEY_BLOCK, ENCRYPTED_PASSKEY_BLOCK + 16);
+  logger.debug("Encrypted passkey: {::#x}", encrypted_passkey);
+}
+
+void nearby_platform_NotifyPasskey() {
+  logger.debug("EncryptAndNotifyPasskey");
+  nearby_platform_GattNotify(0x00, kPasskey, ENCRYPTED_PASSKEY_BLOCK, 16);
+}
+
 // Initializes BLE
 //
 // ble_interface - GATT read and write callbacks structure.
@@ -978,6 +1018,9 @@ nearby_platform_status nearby_platform_BleInit(
     const nearby_platform_BleInterface* ble_interface) {
 
   logger.info("Initializing BLE");
+
+  logger.info("Encrypting passkey");
+  encrypt_passkey();
 
   // save the ble_interface (on_gatt_write and on_gatt_read callbacks) for later
   g_ble_interface = ble_interface;
@@ -993,7 +1036,8 @@ nearby_platform_status nearby_platform_BleInit(
   // esp_ble_auth_req_t auth_req = ESP_LE_AUTH_REQ_SC_MITM_BOND;
 
   // set the IO capability of the device
-  esp_ble_io_cap_t iocap = ESP_IO_CAP_IO; // display yes no
+  // esp_ble_io_cap_t iocap = ESP_IO_CAP_IO; // display yes no
+  esp_ble_io_cap_t iocap = ESP_IO_CAP_OUT; // display yes no
   // esp_ble_io_cap_t iocap = ESP_IO_CAP_IN; // keyboard only
   // esp_ble_io_cap_t iocap = ESP_IO_CAP_NONE; // device is not capable of input or output, unsecure
   // esp_ble_io_cap_t iocap = ESP_IO_CAP_KBDISP; // keyboard display
