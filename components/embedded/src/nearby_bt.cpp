@@ -1,5 +1,7 @@
 #include "embedded.hpp"
 
+#if CONFIG_BT_CLASSIC_ENABLED
+
 static espp::Logger logger({.tag = "GFPS BR/EDR", .level = espp::Logger::Verbosity::DEBUG});
 
 // Contains pointers to callback functions:
@@ -12,8 +14,6 @@ static espp::Logger logger({.tag = "GFPS BR/EDR", .level = espp::Logger::Verbosi
 // - on_message_stream_received(uint64_t peer_address, const uint8_t* data, size_t size)
 // #endif
 static const nearby_platform_BtInterface *g_bt_interface = nullptr;
-
-#if CONFIG_BT_CLASSIC_ENABLED
 
 static SemaphoreHandle_t bt_hidh_cb_semaphore = NULL;
 #define WAIT_BT_CB() xSemaphoreTake(bt_hidh_cb_semaphore, portMAX_DELAY)
@@ -69,7 +69,6 @@ static void bt_gap_event_handler(esp_bt_gap_cb_event_t event, esp_bt_gap_cb_para
         break;
     }
 }
-#endif
 
 /////////////////BLUETOOTH///////////////////////
 
@@ -80,14 +79,10 @@ uint32_t nearby_platform_GetModelId() {
 
 // Returns tx power level.
 int8_t nearby_platform_GetTxLevel() {
-  #if CONFIG_BT_CLASSIC_ENABLED
   esp_power_level_t min_tx_power;
   esp_power_level_t max_tx_power;
   auto err = esp_bredr_tx_power_get(&min_tx_power, &max_tx_power);
   return err == ESP_OK ? (int)max_tx_power : 0;
-  #else
-  return 0;
-  #endif
 }
 
 // Returns public BR/EDR address.
@@ -195,6 +190,7 @@ nearby_platform_status nearby_platform_SendMessageStream(uint64_t peer_address,
 }
 
 #endif /* NEARBY_FP_MESSAGE_STREAM */
+
 // Initializes BT module
 //
 // bt_interface - BT callbacks event structure.
@@ -203,7 +199,6 @@ nearby_platform_status nearby_platform_BtInit(
 
   g_bt_interface = bt_interface;
 
-  #if CONFIG_BT_CLASSIC_ENABLED
   logger.info("Initializing Bluetooth");
 
   esp_err_t ret;
@@ -233,9 +228,6 @@ nearby_platform_status nearby_platform_BtInit(
     return kNearbyStatusError;
   }
 
-  #else
-  logger.warn("Bluetooth not enabled in menuconfig, skipping initialization");
-  #endif
-
   return kNearbyStatusOK;
 }
+#endif /* CONFIG_BT_CLASSIC_ENABLED */

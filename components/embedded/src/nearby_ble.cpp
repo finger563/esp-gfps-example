@@ -2,6 +2,16 @@
 
 static espp::Logger logger({.tag = "GFPS BLE", .level = espp::Logger::Verbosity::DEBUG});
 
+static const nearby_platform_BleInterface *g_ble_interface = nullptr;
+
+#if !defined(CONFIG_BT_CLASSIC_ENABLED)
+// if BT classic isn't enabled, then we need to implement the GFPS BT interface
+// in this file (mainly the on_pairing_request, on_paired, and on_pairing_failed
+// methods)
+static const nearby_platform_BtInterface *g_bt_interface = nullptr;
+#endif
+
+
 /* Attributes State Machine */
 enum
   {
@@ -37,10 +47,8 @@ static uint32_t PASSKEY  = 123456;
 static uint8_t REMOTE_PUBLIC_KEY[64] = {0};
 static uint8_t ENCRYPTED_PASSKEY_BLOCK[16] = {0};
 
-void encrypt_passkey(int new_passkey);
-void nearby_platform_NotifyPasskey();
-
 static std::vector<uint8_t> raw_adv_data;
+static std::vector<uint8_t> remote_bd_addr;
 
 /* Service */
 // NOTE: these UUIDs are specified at 16-bit, which means that 1) they are not
@@ -88,8 +96,6 @@ static SemaphoreHandle_t ble_cb_semaphore = NULL;
 #define SEND_BLE_CB() xSemaphoreGive(ble_cb_semaphore)
 
 #define SIZEOF_ARRAY(a) (sizeof(a) / sizeof(*a))
-
-static const nearby_platform_BleInterface *g_ble_interface = nullptr;
 
 const uint8_t gfps_service_uuid[16] = {
   /* LSB <--------------------------------------------------------------------------------> MSB */
@@ -493,8 +499,24 @@ static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param
   case ESP_GAP_BLE_AUTH_CMPL_EVT:
     if (!param->ble_security.auth_cmpl.success) {
       logger.error("BLE GAP AUTH ERROR: {:#x}", param->ble_security.auth_cmpl.fail_reason);
+      #if !defined(CONFIG_BT_CLASSIC_ENABLED)
+      if (g_bt_interface != nullptr) {
+        // get the uint64_t peer_address from the param
+        uint64_t peer_address = 0;
+        memcpy(&peer_address, param->ble_security.auth_cmpl.bd_addr, sizeof(uint64_t));
+        g_bt_interface->on_pairing_failed(peer_address);
+      }
+      #endif
     } else {
       logger.info("BLE GAP AUTH SUCCESS");
+      #if !defined(CONFIG_BT_CLASSIC_ENABLED)
+      if (g_bt_interface != nullptr) {
+        // get the uint64_t peer_address from the param
+        uint64_t peer_address = 0;
+        memcpy(&peer_address, param->ble_security.auth_cmpl.bd_addr, sizeof(uint64_t));
+        g_bt_interface->on_paired(peer_address);
+      }
+      #endif
     }
     break;
 
@@ -508,19 +530,18 @@ static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param
     // The app will receive this evt when the IO has Output capability and the peer device IO
     // has Input capability. Show the passkey number to the user to input it in the peer device.
     logger.info("BLE GAP PASSKEY_NOTIF passkey: {}", received_passkey);
-
-    // send the passkey back to the peer device using the GFPS PASSKEY characteristic
-    encrypt_passkey(received_passkey);
-    nearby_platform_NotifyPasskey();
   }
     break;
 
-  case ESP_GAP_BLE_NC_REQ_EVT: // ESP_IO_CAP_IO
+  case ESP_GAP_BLE_NC_REQ_EVT: { // ESP_IO_CAP_IO
+    int received_passkey = (int)param->ble_security.key_notif.passkey;
     // The app will receive this event when the IO has DisplayYesNO capability and the peer
     // device IO also has DisplayYesNo capability. show the passkey number to the user to
     // confirm it with the number displayed by peer device.
-    logger.info("BLE GAP NC_REQ");
+    logger.info("BLE GAP NC_REQ passkey: {}", received_passkey);
+    PASSKEY = received_passkey;
     esp_ble_confirm_reply(param->ble_security.ble_req.bd_addr, true);
+  }
     break;
 
   case ESP_GAP_BLE_PASSKEY_REQ_EVT: // ESP_IO_CAP_IN
@@ -547,6 +568,19 @@ static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param
 
   case ESP_GAP_BLE_SEC_REQ_EVT:
     logger.info("BLE GAP SEC_REQ");
+
+    remote_bd_addr.assign(param->ble_security.ble_req.bd_addr, param->ble_security.ble_req.bd_addr + ESP_BD_ADDR_LEN);
+
+    #if !defined(CONFIG_BT_CLASSIC_ENABLED)
+    // inform gfps that there is a pairing request
+    if (g_bt_interface != nullptr) {
+      // get the uint64_t peer address from the event
+      uint64_t peer_address = 0;
+      memcpy(&peer_address, param->ble_security.ble_req.bd_addr, sizeof(esp_bd_addr_t));
+      g_bt_interface->on_pairing_request(peer_address);
+    }
+    #endif
+
     // Send the positive(true) security response to the peer device to accept the security
     // request. If not accept the security request, should send the security response with
     // negative(false) accept value.
@@ -966,54 +1000,6 @@ nearby_platform_status nearby_platform_SetAdvertisement(
   return kNearbyStatusOK;
 }
 
-void encrypt_passkey(int new_passkey) {
-  // get the AesKey (shared secrete made from the remote device's public key and our private key)
-  uint8_t aes_key[16];
-  auto status = nearby_fp_CreateSharedSecret(REMOTE_PUBLIC_KEY, aes_key);
-  if (status != kNearbyStatusOK) {
-    logger.error("CreateSharedSecret failed: {}", (int)status);
-    return;
-  }
-
-  PASSKEY = new_passkey;
-
-  // BT negotatiates passkey 123456 (0x01E240)
-  uint8_t SEEKERS_PASSKEY = 0x02;
-  uint8_t PROVIDERS_PASSKEY = 0x03;
-  uint8_t raw_passkey_block[16] = {
-    // first byte is the message type
-    // SEEKERS_PASSKEY,
-    PROVIDERS_PASSKEY,
-
-    // The next 3 bytes are the passkey (in little endian)
-    (uint8_t)(PASSKEY & 0xFF),
-    (uint8_t)((PASSKEY >> 8) & 0xFF),
-    (uint8_t)((PASSKEY >> 16) & 0xFF),
-
-    // the remaining bytes are salt (random)
-    (uint8_t)(esp_random() & 0xFF),
-    (uint8_t)(esp_random() & 0xFF),
-    (uint8_t)(esp_random() & 0xFF),
-    (uint8_t)(esp_random() & 0xFF),
-    (uint8_t)(esp_random() & 0xFF),
-    (uint8_t)(esp_random() & 0xFF),
-    (uint8_t)(esp_random() & 0xFF),
-    (uint8_t)(esp_random() & 0xFF),
-    (uint8_t)(esp_random() & 0xFF),
-    (uint8_t)(esp_random() & 0xFF),
-    (uint8_t)(esp_random() & 0xFF),
-    (uint8_t)(esp_random() & 0xFF),
-  };
-  nearby_platform_Aes128Encrypt(raw_passkey_block, ENCRYPTED_PASSKEY_BLOCK, aes_key);
-  std::vector<uint8_t> encrypted_passkey(ENCRYPTED_PASSKEY_BLOCK, ENCRYPTED_PASSKEY_BLOCK + 16);
-  logger.debug("Encrypted passkey: {::#x}", encrypted_passkey);
-}
-
-void nearby_platform_NotifyPasskey() {
-  logger.debug("EncryptAndNotifyPasskey");
-  nearby_platform_GattNotify(0x00, kPasskey, ENCRYPTED_PASSKEY_BLOCK, 16);
-}
-
 // Initializes BLE
 //
 // ble_interface - GATT read and write callbacks structure.
@@ -1030,13 +1016,8 @@ nearby_platform_status nearby_platform_BleInit(
 
   // set the IO capability of the device
   esp_ble_io_cap_t iocap = ESP_IO_CAP_IO; // display yes no
-  // esp_ble_io_cap_t iocap = ESP_IO_CAP_OUT; // display yes no
-  // esp_ble_io_cap_t iocap = ESP_IO_CAP_IN; // keyboard only
-  // esp_ble_io_cap_t iocap = ESP_IO_CAP_NONE; // device is not capable of input or output, unsecure
-  // esp_ble_io_cap_t iocap = ESP_IO_CAP_KBDISP; // keyboard display
 
   // set the out of band configuration
-  // uint8_t oob_support = ESP_BLE_OOB_ENABLE;
   uint8_t oob_support = ESP_BLE_OOB_DISABLE;
 
   // set the key configuration
@@ -1063,3 +1044,116 @@ nearby_platform_status nearby_platform_BleInit(
 
   return kNearbyStatusOK;
 }
+
+#if !defined(CONFIG_BT_CLASSIC_ENABLED)
+// Returns Fast Pair Model Id.
+uint32_t nearby_platform_GetModelId() {
+  return CONFIG_MODEL_ID;
+}
+
+// Returns tx power level.
+int8_t nearby_platform_GetTxLevel() {
+  esp_power_level_t tx_power = esp_ble_tx_power_get(ESP_BLE_PWR_TYPE_DEFAULT);
+  return tx_power;
+}
+
+// Returns public BR/EDR address.
+// On a BLE-only device, return the public identity address.
+uint64_t nearby_platform_GetPublicAddress() {
+  const uint8_t* addr = esp_bt_dev_get_address();
+  return (uint64_t)addr[0] << 40 | (uint64_t)addr[1] << 32 |
+         (uint64_t)addr[2] << 24 | (uint64_t)addr[3] << 16 |
+         (uint64_t)addr[4] << 8 | (uint64_t)addr[5];
+}
+
+// Initializes BT
+nearby_platform_status nearby_platform_BtInit(
+    const nearby_platform_BtInterface* bt_interface) {
+  logger.info("Initializing BT");
+  g_bt_interface = bt_interface;
+  return kNearbyStatusOK;
+}
+
+// Returns the secondary identity address.
+// Some devices, such as ear-buds, can advertise two identity addresses. In this
+// case, the Seeker pairs with each address separately but treats them as a
+// single logical device set.
+// Return 0 if this device does not have a secondary identity address.
+uint64_t nearby_platform_GetSecondaryPublicAddress() {
+  logger.warn("GetSecondaryPublicAddress not implemented");
+  return 0;
+}
+
+// Returns passkey used during pairing
+uint32_t nearby_platfrom_GetPairingPassKey() {
+  logger.info("GetPairingPassKey: {}", PASSKEY);
+  return PASSKEY;
+}
+
+// Provides the passkey received from the remote party.
+// The system should compare local and remote party and accept/decline pairing
+// request accordingly.
+//
+// passkey - Passkey
+void nearby_platform_SetRemotePasskey(uint32_t passkey) {
+  logger.info("SetRemotePasskey: {}", passkey);
+  // PASSKEY = passkey;
+  esp_ble_passkey_reply(remote_bd_addr.data(), true, passkey);
+  // esp_ble_gap_security_rsp(remote_bd_addr.data(), true);
+  // esp_gap_ble_set_authorization(remote_bd_addr.data(), true);
+  esp_ble_confirm_reply(remote_bd_addr.data(), true);
+}
+
+// Sends a pairing request to the Seeker
+//
+// remote_party_br_edr_address - BT address of peer.
+nearby_platform_status nearby_platform_SendPairingRequest(
+    uint64_t remote_party_br_edr_address) {
+  logger.warn("SendPairingRequest not implemented");
+  // TODO: implement
+  return kNearbyStatusOK;
+}
+
+// Switches the device capabilities field back to default so that new
+// pairings continue as expected.
+nearby_platform_status nearby_platform_SetDefaultCapabilities() {
+  logger.warn("SetDefaultCapabilities not implemented");
+  // TODO: implement
+  return kNearbyStatusOK;
+}
+
+// Switches the device capabilities field to Fast Pair required configuration:
+// DisplayYes/No so that `confirm passkey` pairing method will be used.
+nearby_platform_status nearby_platform_SetFastPairCapabilities() {
+  logger.warn("SetFastPairCapabilities not implemented");
+  // TODO: implement
+  return kNearbyStatusOK;
+}
+
+// Sets null-terminated device name string in UTF-8 encoding
+//
+// name - Zero terminated string name of device.
+nearby_platform_status nearby_platform_SetDeviceName(const char* name) {
+  esp_bt_dev_set_device_name(name);
+  return kNearbyStatusOK;
+}
+
+// Gets null-terminated device name string in UTF-8 encoding
+// pass buffer size in char, and get string length in char.
+//
+// name   - Buffer to return name string.
+// length - On input, the size of the name buffer.
+//          On output, returns size of name in buffer.
+nearby_platform_status nearby_platform_GetDeviceName(char* name,
+                                                     size_t* length) {
+  logger.warn("GetDeviceName not implemented");
+  // TODO: implement
+  return kNearbyStatusOK;
+}
+
+// Returns true if the device is in pairing mode (either fast-pair or manual).
+bool nearby_platform_IsInPairingMode() {
+  // TODO: implement
+  return true;
+}
+#endif
