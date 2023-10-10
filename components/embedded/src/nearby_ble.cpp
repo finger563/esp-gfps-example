@@ -1069,7 +1069,7 @@ uint64_t nearby_platform_GetPublicAddress() {
 // Initializes BT
 nearby_platform_status nearby_platform_BtInit(
     const nearby_platform_BtInterface* bt_interface) {
-  logger.info("Initializing BT");
+  logger.info("Initializing BT (DISABLED)");
   g_bt_interface = bt_interface;
   return kNearbyStatusOK;
 }

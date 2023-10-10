@@ -75,7 +75,9 @@ extern "C" void app_main(void) {
 
   // Initialize the bluetooth subsystem
   esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
+#if CONFIG_IDF_TARGET_ESP32
   bt_cfg.mode = mode;
+#endif
 #if CONFIG_BT_CLASSIC_ENABLED
   if (mode & ESP_BT_MODE_CLASSIC_BT) {
     bt_cfg.bt_max_acl_conn = 3;
